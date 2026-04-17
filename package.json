@@ -1,0 +1,23 @@
+{
+  "name": "precision-arena-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVP core logic for Precision Arena",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "demo": "node dist/demo/run.js",
+    "demo:duel": "npm run build && node dist/demo/duel.js",
+    "benchmark:scoring": "npm run build && node dist/demo/benchmarkScoring.js",
+    "benchmark:calibration": "npm run build && node dist/demo/calibrateScoring.js",
+    "start": "npm run build && npm run demo",
+    "functions:install": "npm install --prefix functions",
+    "functions:serve": "npm run serve --prefix functions",
+    "app:install": "npm install --prefix app",
+    "app:start": "npm run start --prefix app"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
+  }
+}

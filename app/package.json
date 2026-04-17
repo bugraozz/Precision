@@ -1,0 +1,32 @@
+{
+  "name": "precision-arena-app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "@react-native-firebase/app": "^21.12.0",
+    "@react-native-firebase/crashlytics": "^21.12.0",
+    "@tamagui/config": "^2.0.0-rc.22",
+    "@tamagui/core": "^2.0.0-rc.22",
+    "expo": "~53.0.0",
+    "expo-linear-gradient": "~14.1.5",
+    "precision-arena-core": "file:..",
+    "react": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-svg": "15.11.2",
+    "tamagui": "^2.0.0-rc.22"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@tamagui/babel-plugin": "^2.0.0-rc.22",
+    "@types/react": "~19.0.10",
+    "typescript": "~5.8.3"
+  }
+}

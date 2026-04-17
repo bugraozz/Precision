@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+app/dist/
+functions/lib/
+functions/dist/
+
+# Expo / React Native local artifacts
+.expo/
+app/.expo/
+app/.expo-shared/
+*.expo.*
+
+# Environment files
+.env
+.env.*
+!.env.example
+app/.env
+app/.env.*
+!app/.env.example
+
+# Firebase local emulator/debug artifacts
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# IDE / OS files
+.DS_Store
+Thumbs.db
+
+# Credentials / signing material
+*.keystore
+*.jks
+*.p8
+*.p12
+
+# Android/iOS service config (local-only by default)
+app/google-services.json
+app/GoogleService-Info.plist

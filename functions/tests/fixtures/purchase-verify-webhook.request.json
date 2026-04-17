@@ -1,0 +1,7 @@
+{
+  "userId": "local-user",
+  "productId": "premium.bundle.v1",
+  "platform": "android",
+  "purchaseToken": "tok_test_123",
+  "sandbox": true
+}

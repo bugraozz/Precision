@@ -1,0 +1,28 @@
+{
+  "name": "precision-arena-functions",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
+    "test:firestore-rules": "firebase emulators:exec --only firestore \"node tests/firestore.rules.test.js\"",
+    "test:round-submit": "node tests/round-submit.contract.test.js",
+    "test:analytics-ingest": "node tests/analytics-ingest.contract.test.js",
+    "test:score-consistency": "node tests/score-consistency.test.js",
+    "test:claims": "node tests/claims.contract.test.js",
+    "test:purchase-providers": "node tests/purchase-providers.contract.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.0.1",
+    "precision-arena-core": "file:.."
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.3",
+    "firebase-tools": "^13.35.1"
+  }
+}
