@@ -4,6 +4,7 @@
   "private": true,
   "description": "MVP core logic for Precision Arena",
   "type": "commonjs",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "demo": "node dist/demo/run.js",

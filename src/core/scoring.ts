@@ -1,6 +1,6 @@
 import { distance, normalizeToUnitBox, pathLength, resamplePath } from "./geometry";
 import { SHAPE_TEMPLATES } from "./shapeTemplates";
-import { AccuracyResult, Difficulty, Point, ScoreResult, ScoringVersion } from "./types";
+import { AccuracyResult, Difficulty, Point, ScoreResult, ScoringVersion, ScoreOptions } from "./types";
 
 const DIFFICULTY_MULTIPLIER: Record<Difficulty, number> = {
   easy: 1,
@@ -8,7 +8,7 @@ const DIFFICULTY_MULTIPLIER: Record<Difficulty, number> = {
   hard: 1.6
 };
 
-export function computeAccuracyPercent(userPoints: Point[], targetShape: string): AccuracyResult {
+export function computeAccuracyPercent(userPoints: Point[], targetShape: string, options?: ScoreOptions): AccuracyResult {
   const template = SHAPE_TEMPLATES[targetShape];
   if (!template) {
     throw new Error(`Unknown shape: ${targetShape}`);
@@ -26,10 +26,80 @@ export function computeAccuracyPercent(userPoints: Point[], targetShape: string)
   const sampledUser = resamplePath(normalizeToUnitBox(userPoints), sampleCount);
   const sampledTemplate = resamplePath(normalizeToUnitBox(template), sampleCount);
 
-  return buildAccuracyResult(sampledUser, sampledTemplate);
+  const result = buildAccuracyResult(sampledUser, sampledTemplate, options);
+  return {
+    ...result,
+    accuracyPercent: Number(
+      applyStrokeSizeFactor(result.accuracyPercent, userPoints, options).toFixed(2)
+    )
+  };
 }
 
-function buildAccuracyResult(sampledUser: Point[], sampledTemplate: Point[]): AccuracyResult {
+/* Absolute size guard: normalized unit-box scoring is scale invariant, so a
+ * 5px scribble would be graded like a full-screen drawing. When the caller
+ * provides the canvas min dimension, strokes whose own bbox is much smaller
+ * than the canvas get proportionally dampened accuracy. */
+const MIN_STROKE_CANVAS_FRACTION = 0.3;
+
+function strokeBboxMaxDim(points: Point[]): number {
+  if (points.length === 0) {
+    return 0;
+  }
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return Math.max(0, maxX - minX, maxY - minY);
+}
+
+export function applyStrokeSizeFactor(
+  accuracyPercent: number,
+  userPoints: Point[],
+  options?: ScoreOptions
+): number {
+  const canvasMinDim = options?.canvasMinDim;
+  if (!canvasMinDim || canvasMinDim <= 0) {
+    return accuracyPercent;
+  }
+  const sizeThreshold = Math.max(24, canvasMinDim * MIN_STROKE_CANVAS_FRACTION);
+  const strokeSize = strokeBboxMaxDim(userPoints);
+  if (strokeSize >= sizeThreshold) {
+    return accuracyPercent;
+  }
+  const spread = Math.max(0, Math.min(1, strokeSize / sizeThreshold));
+  const sizeFactor = 0.15 + 0.85 * Math.sqrt(spread);
+  return Math.max(0, Math.min(100, accuracyPercent * sizeFactor));
+}
+
+function calculateSymmetryPenalty(points: Point[]): number {
+  if (points.length === 0) return 0;
+  let minX = Infinity, maxX = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+  }
+  const centerX = (minX + maxX) / 2;
+
+  let totalSymmetryDiff = 0;
+  for (const p of points) {
+    const mirroredX = 2 * centerX - p.x;
+    let minDist = Infinity;
+    for (const target of points) {
+      const d = Math.hypot(target.x - mirroredX, target.y - p.y);
+      if (d < minDist) minDist = d;
+    }
+    totalSymmetryDiff += minDist;
+  }
+  return totalSymmetryDiff / points.length;
+}
+
+function buildAccuracyResult(sampledUser: Point[], sampledTemplate: Point[], options?: ScoreOptions): AccuracyResult {
   const sampleCount = sampledTemplate.length;
 
   let totalDeviation = 0;
@@ -38,14 +108,31 @@ function buildAccuracyResult(sampledUser: Point[], sampledTemplate: Point[]): Ac
   }
 
   const meanDeviation = totalDeviation / sampleCount;
-  const profilePenalty = shapeProfilePenalty(sampledUser, sampledTemplate);
+  const profilePenalty = shapeProfilePenalty(sampledUser, sampledTemplate, options?.mechanicTag);
   const closurePenalty = closureDistancePenalty(sampledUser, sampledTemplate);
   const perimeterPenalty = perimeterRatioPenalty(sampledUser, sampledTemplate);
-  const combinedDeviation =
-    meanDeviation * (1 + profilePenalty * 5.4) + closurePenalty * 0.16 + perimeterPenalty * 0.14;
+  
+  let symmetryPenalty = 0;
+  if (options?.mechanicTag === "symmetry") {
+    symmetryPenalty = calculateSymmetryPenalty(sampledUser);
+  }
+
+  let combinedDeviation =
+    meanDeviation * (1 + profilePenalty * 5.4) + closurePenalty * 0.16 + perimeterPenalty * 0.14 + symmetryPenalty * 2.5;
+
+  if (options?.mechanicTag === "memory") {
+    combinedDeviation *= 0.85;
+  }
+
   const normalizedDeviation = Math.min(1, combinedDeviation / Math.SQRT2);
   const curved = Math.pow(Math.max(0, 1 - normalizedDeviation), 1.18);
-  const accuracyPercent = Math.max(0, Math.min(100, curved * 100));
+  let accuracyPercent = Math.max(0, Math.min(100, curved * 100));
+
+  if (options?.mechanicTag === "speed" && options.timeTakenMs && options.timeLimitMs) {
+    const timeRatio = options.timeTakenMs / options.timeLimitMs;
+    const speedMultiplier = Math.max(1.0, 1.20 - (0.20 * timeRatio));
+    accuracyPercent = Math.min(100, accuracyPercent * speedMultiplier);
+  }
 
   return {
     accuracyPercent: Number(accuracyPercent.toFixed(2)),
@@ -137,7 +224,7 @@ function turnProfile(points: Point[]): { mean: number; stdev: number; cornerRati
   return { mean, stdev, cornerRatio, cornerRuns };
 }
 
-function shapeProfilePenalty(userPoints: Point[], templatePoints: Point[]): number {
+function shapeProfilePenalty(userPoints: Point[], templatePoints: Point[], mechanicTag?: string): number {
   const user = turnProfile(userPoints);
   const template = turnProfile(templatePoints);
   const radialUser = radialProfile(userPoints);
@@ -154,13 +241,18 @@ function shapeProfilePenalty(userPoints: Point[], templatePoints: Point[]): numb
   const radialRangeDiff = Math.abs(radialUser.range - radialTemplate.range);
   const areaDiff = Math.abs(areaUser - areaTemplate);
 
+  const isStability = mechanicTag === "stability";
+  const cornerDiffW = isStability ? 4.0 : 1.55;
+  const cornerRunDiffW = isStability ? 3.5 : 1.35;
+  const radialStdDiffW = isStability ? 5.0 : 2.1;
+
   return Math.min(
     1,
     meanDiff * 0.35 +
       stdevDiff * 0.35 +
-      cornerDiff * 1.55 +
-      cornerRunDiff * 1.35 +
-      radialStdDiff * 2.1 +
+      cornerDiff * cornerDiffW +
+      cornerRunDiff * cornerRunDiffW +
+      radialStdDiff * radialStdDiffW +
       radialRangeDiff * 1.45 +
       areaDiff * 1.7
   );
@@ -221,7 +313,7 @@ function rotateAroundCenter(points: Point[], radians: number): Point[] {
   });
 }
 
-function findBestAlignedAccuracy(sampledUser: Point[], sampledTemplate: Point[]): AccuracyResult {
+function findBestAlignedAccuracy(sampledUser: Point[], sampledTemplate: Point[], options?: ScoreOptions): AccuracyResult {
   const candidates: Point[][] = [sampledUser, sampledUser.slice().reverse()];
   const angleSteps = 36;
   const shiftStep = 2;
@@ -252,7 +344,7 @@ function findBestAlignedAccuracy(sampledUser: Point[], sampledTemplate: Point[])
       const angle = (2 * Math.PI * i) / angleSteps;
       const rotated = rotateAroundCenter(candidate, angle);
       for (let shift = 0; shift < shiftUpperBound; shift += shiftStep) {
-        const current = buildAccuracyResult(rotated, shiftedTemplate(sampledTemplate, shift));
+        const current = buildAccuracyResult(rotated, shiftedTemplate(sampledTemplate, shift), options);
         if (!best || current.meanDeviation < best.meanDeviation) {
           best = current;
         }
@@ -260,10 +352,10 @@ function findBestAlignedAccuracy(sampledUser: Point[], sampledTemplate: Point[])
     }
   }
 
-  return best || buildAccuracyResult(sampledUser, sampledTemplate);
+  return best || buildAccuracyResult(sampledUser, sampledTemplate, options);
 }
 
-export function computeAccuracyPercentV2(userPoints: Point[], targetShape: string): AccuracyResult {
+export function computeAccuracyPercentV2(userPoints: Point[], targetShape: string, options?: ScoreOptions): AccuracyResult {
   const template = SHAPE_TEMPLATES[targetShape];
   if (!template) {
     throw new Error(`Unknown shape: ${targetShape}`);
@@ -280,7 +372,13 @@ export function computeAccuracyPercentV2(userPoints: Point[], targetShape: strin
   const sampleCount = 96;
   const sampledUser = resamplePath(normalizeToUnitBox(userPoints), sampleCount);
   const sampledTemplate = resamplePath(normalizeToUnitBox(template), sampleCount);
-  return findBestAlignedAccuracy(sampledUser, sampledTemplate);
+  const aligned = findBestAlignedAccuracy(sampledUser, sampledTemplate, options);
+  return {
+    ...aligned,
+    accuracyPercent: Number(
+      applyStrokeSizeFactor(aligned.accuracyPercent, userPoints, options).toFixed(2)
+    )
+  };
 }
 
 export function getScoringVersionFromEnvValue(value: unknown): ScoringVersion {
@@ -297,11 +395,11 @@ export function getScoringVersionFromEnvValue(value: unknown): ScoringVersion {
 export function computeAccuracyPercentByVersion(
   userPoints: Point[],
   targetShape: string,
-  scoringVersion: ScoringVersion = "v2"
+  options?: ScoreOptions
 ): AccuracyResult {
-  return scoringVersion === "v2"
-    ? computeAccuracyPercentV2(userPoints, targetShape)
-    : computeAccuracyPercent(userPoints, targetShape);
+  return options?.scoringVersion === "v1"
+    ? computeAccuracyPercent(userPoints, targetShape, options)
+    : computeAccuracyPercentV2(userPoints, targetShape, options);
 }
 
 export function starsFromAccuracy(accuracyPercent: number): 0 | 1 | 2 | 3 {
@@ -335,21 +433,50 @@ export function scoreRound(
   targetShape: string,
   difficulty: Difficulty,
   streakBonus: number = 0,
-  options?: {
-    scoringVersion?: ScoringVersion;
-  }
+  options?: ScoreOptions
 ): ScoreResult {
+  const finalOptions = {
+    ...options,
+    scoringVersion: options?.scoringVersion || "v2"
+  };
+  
   const accuracy = computeAccuracyPercentByVersion(
     userPoints,
     targetShape,
-    options?.scoringVersion || "v2"
+    finalOptions
   );
+  
   const stars = starsFromAccuracy(accuracy.accuracyPercent);
+  
   return {
     stars,
     xpGained: calculateXp(accuracy.accuracyPercent, difficulty, streakBonus, stars),
     accuracyPercent: accuracy.accuracyPercent
   };
+}
+
+/* Single-pass scoring: computes accuracy once and derives stars/xp from the
+ * same result. Use this instead of calling computeAccuracyPercentByVersion
+ * and scoreRound back to back (which doubled the alignment search cost). */
+export function scoreRoundDetailed(
+  userPoints: Point[],
+  targetShape: string,
+  difficulty: Difficulty,
+  streakBonus: number = 0,
+  options?: ScoreOptions
+): { score: ScoreResult; accuracy: AccuracyResult } {
+  const finalOptions = {
+    ...options,
+    scoringVersion: options?.scoringVersion || "v2"
+  };
+  const accuracy = computeAccuracyPercentByVersion(userPoints, targetShape, finalOptions);
+  const stars = starsFromAccuracy(accuracy.accuracyPercent);
+  const score: ScoreResult = {
+    stars,
+    xpGained: calculateXp(accuracy.accuracyPercent, difficulty, streakBonus, stars),
+    accuracyPercent: accuracy.accuracyPercent
+  };
+  return { score, accuracy };
 }
 
 export function minimumRequiredPoints(timeLimitMs: number): number {

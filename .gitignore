@@ -39,3 +39,4 @@ Thumbs.db
 # Android/iOS service config (local-only by default)
 app/google-services.json
 app/GoogleService-Info.plist
+.aider*

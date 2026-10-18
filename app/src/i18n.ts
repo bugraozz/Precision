@@ -8,20 +8,32 @@ const translations = {
   appSubtitle: { en: "Precision Drawing", tr: "Hassas Çizim" },
   ready: { en: "Ready", tr: "Hazır" },
 
+  // ── Daily shape + sharing + flawless ──
+  dailyShape: { en: "Daily Shape", tr: "Günlük Şekil" },
+  dailyShapeDone: { en: "Daily shape completed!", tr: "Günlük şekil tamamlandı!" },
+  dailyStreakLabel: { en: "Streak", tr: "Seri" },
+  dailyBest: { en: "Best", tr: "En iyi" },
+  dailyPlay: { en: "Play", tr: "Oyna" },
+  dailyReplay: { en: "Done · Play Again", tr: "Bitti · Tekrar" },
+  flawlessLabel: { en: "Flawless", tr: "Kusursuz" },
+  ghostLabel: { en: "Ghost", tr: "Hayalet" },
+  memoryPeeksLeftLabel: { en: "Peeks left", tr: "Kalan bakış" },
+  speedTimeUp: { en: "Time is up! Round ended.", tr: "Süre doldu! Tur bitti." },
+  shareCard: { en: "Share Result", tr: "Sonucu Paylaş" },
+
   // ── Stats ─────────────────────────────────────────────────────────────────
   stars: { en: "Stars", tr: "Yıldız" },
   coins: { en: "COINS", tr: "ALTIN" },
   energy: { en: "Energy", tr: "Enerji" },
-  gems: { en: "Gems", tr: "Elmas" },
   rounds: { en: "Rounds", tr: "Tur" },
   xp: { en: "XP", tr: "XP" },
 
   // ── Premium ───────────────────────────────────────────────────────────────
-  premiumActive: { en: "Premium Active", tr: "Premium Aktif" },
-  premiumPack: { en: "Premium Pack", tr: "Premium Paket" },
+  premiumActive: { en: "No Ads Active", tr: "Reklamlar Kaldırıldı" },
+  premiumPack: { en: "Remove Ads", tr: "Reklamları Kaldır" },
   pro: { en: "PRO", tr: "PRO" },
-  premiumDescActive: { en: "30 energy/day, no ads, exclusive cosmetics", tr: "Günde 30 enerji, reklamsız, özel kozmetikler" },
-  premiumDescInactive: { en: "Upgrade for 3x energy, no ads & exclusives", tr: "3x enerji, reklamsız ve özel içerikler için yükselt" },
+  premiumDescActive: { en: "3x energy capacity and no ads", tr: "3 kat enerji kapasitesi ve reklamsız" },
+  premiumDescInactive: { en: "Remove ads and get 3x energy capacity", tr: "Reklamları kaldır ve 3 kat enerji kapasitesi kazan" },
   cosmetics: { en: "Cosmetics", tr: "Kozmetik" },
   monthlyItem: { en: "Monthly Item", tr: "Aylık Ödül" },
   pending: { en: "Pending", tr: "Bekliyor" },
@@ -98,6 +110,7 @@ const translations = {
   rankings: { en: "Rankings", tr: "Sıralama" },
   loading: { en: "Loading...", tr: "Yükleniyor..." },
   noEntriesYet: { en: "No entries yet", tr: "Henüz giriş yok" },
+  you: { en: "You", tr: "Sen" },
   beFirstToSubmit: { en: "Be the first to submit!", tr: "İlk gönderen sen ol!" },
 
   // ── Personal best ─────────────────────────────────────────────────────────
@@ -337,6 +350,54 @@ const translations = {
 
   // ── Language ──────────────────────────────────────────────────────────────
   language: { en: "EN", tr: "TR" },
+
+  // ── Leaderboard panel ─────────────────────────────────────────────────────
+  leaderboard: { en: "Leaderboard", tr: "Liderlik Tablosu" },
+  globalRankings: { en: "Global Rankings", tr: "Dünya Sıralaması" },
+  globalRankingsDesc: { en: "Best score per shape across all players", tr: "Tüm oyuncuların şekil başına en iyi skoru" },
+  allShapes: { en: "All Shapes", tr: "Tüm Şekiller" },
+  rank: { en: "Rank", tr: "Sıra" },
+  player: { en: "Player", tr: "Oyuncu" },
+  noLeaderboardData: { en: "No scores yet. Be the first!", tr: "Henüz skor yok. İlk sen ol!" },
+
+  // ── Weekly Ladder Global panel ────────────────────────────────────────────
+  weeklyLadderGlobal: { en: "Weekly Ladder", tr: "Haftalık Merdiven" },
+  weeklyLadderGlobalDesc: { en: "Global ranking by ladder points this week", tr: "Bu haftaki ladder puanına göre dünya sıralaması" },
+  ladderPoints: { en: "Pts", tr: "Puan" },
+  noLadderData: { en: "No ladder scores yet this week.", tr: "Bu hafta henüz ladder skoru yok." },
+  thisWeek: { en: "This Week", tr: "Bu Hafta" },
+
+  // ── Duel panel ────────────────────────────────────────────────────────────
+  duel: { en: "Duel", tr: "Düello" },
+  duelTitle: { en: "1v1 Duel", tr: "1v1 Düello" },
+  duelDesc: { en: "Create a duel, share the code, and see who draws better!", tr: "Düello oluştur, kodu paylaş ve kimin daha iyi çizdiğini gör!" },
+  createDuel: { en: "Create Duel", tr: "Düello Oluştur" },
+  joinDuel: { en: "Join Duel", tr: "Düelloya Katıl" },
+  duelId: { en: "Duel ID", tr: "Düello Kodu" },
+  duelIdPlaceholder: { en: "Paste duel code here…", tr: "Düello kodunu buraya yapıştır…" },
+  duelShape: { en: "Shape", tr: "Şekil" },
+  duelStatus: { en: "Status", tr: "Durum" },
+  duelWaiting: { en: "Waiting for opponent…", tr: "Rakip bekleniyor…" },
+  duelActive: { en: "Both submitted — resolving…", tr: "İkisi de gönderdi — çözümleniyor…" },
+  duelFinished: { en: "Finished", tr: "Tamamlandı" },
+  duelWinner: { en: "Winner", tr: "Kazanan" },
+  duelTie: { en: "It's a Tie! 🤝", tr: "Berabere! 🤝" },
+  duelYouWin: { en: "You Win! 🏆", tr: "Kazandın! 🏆" },
+  duelYouLose: { en: "You Lose 😤", tr: "Kaybettin 😤" },
+  duelSubmitTurn: { en: "Submit My Turn", tr: "Turum Gönder" },
+  duelCheckResult: { en: "Check Result", tr: "Sonuca Bak" },
+  duelMyDuels: { en: "My Duels", tr: "Düellolarım" },
+  duelCreating: { en: "Creating…", tr: "Oluşturuluyor…" },
+  duelJoining: { en: "Joining…", tr: "Katılıyor…" },
+  duelCreated: { en: "Duel created! Share the code:", tr: "Düello oluşturuldu! Kodu paylaş:" },
+  duelCopyCode: { en: "Copy Code", tr: "Kodu Kopyala" },
+  duelCopied: { en: "Copied!", tr: "Kopyalandı!" },
+  duelExpired: { en: "Expired", tr: "Süresi Doldu" },
+  duelYou: { en: "You", tr: "Sen" },
+  duelOpponent: { en: "Opponent", tr: "Rakip" },
+  duelScore: { en: "Duel Score", tr: "Düello Puanı" },
+  duelVs: { en: "VS", tr: "VS" },
+  duelEnterCodeFirst: { en: "Enter a duel ID first.", tr: "Önce bir düello kodu gir." },
 } as const;
 
 export type TranslationKey = keyof typeof translations;

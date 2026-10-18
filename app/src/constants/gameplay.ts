@@ -6,9 +6,3 @@ export const STABILITY_WOBBLE_WARN = 0.72;
 export const STABILITY_WOBBLE_HEAVY = 0.86;
 export const SYMMETRY_WARN_ACCURACY = 90;
 export const SYMMETRY_HEAVY_ACCURACY = 84;
-
-export const TUTORIAL_STEPS = [
-  "Choose a level from the cards and press Start Mission.",
-  "Draw the target shape from memory in one smooth stroke.",
-  "Use Retry or Next immediately after results for fast progression."
-];

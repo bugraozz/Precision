@@ -19,14 +19,21 @@ export function pathLength(points: Point[]): number {
 }
 
 export function normalizeToUnitBox(points: Point[]): Point[] {
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
+  if (points.length === 0) {
+    return [];
+  }
 
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  // Unbounded spread in Math.min/Math.max throws RangeError on huge payloads.
   const width = Math.max(1e-9, maxX - minX);
   const height = Math.max(1e-9, maxY - minY);
 

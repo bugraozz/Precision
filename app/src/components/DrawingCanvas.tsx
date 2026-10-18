@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { LayoutChangeEvent, PanResponder, StyleSheet } from "react-native";
+import { LayoutChangeEvent, PanResponder, StyleSheet, Vibration } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { View } from "tamagui";
 import { preprocessStroke } from "../../../src/core/geometry";
@@ -11,6 +11,7 @@ type DrawingCanvasProps = {
   onStrokeCommitted: (points: Point[], startedAtMs: number, endedAtMs: number) => void;
   resetKey?: number;
   cosmeticVisual?: CosmeticVisual;
+  isStabilityMode?: boolean;
 };
 
 function pointsToPath(points: Point[]): string {
@@ -30,17 +31,35 @@ const DEFAULT_VISUAL: CosmeticVisual = {
   accentColor: PRECISION_COLORS.accentSoft
 };
 
-export default function DrawingCanvas({ onStrokeCommitted, resetKey, cosmeticVisual }: DrawingCanvasProps) {
+export default function DrawingCanvas({ onStrokeCommitted, resetKey, cosmeticVisual, isStabilityMode }: DrawingCanvasProps) {
   const [canvasW, setCanvasW] = useState(320);
   const [canvasH, setCanvasH] = useState(320);
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
   const [allPoints, setAllPoints] = useState<Point[]>([]);
+  const currentPointsRef = useRef<Point[]>([]);
+  const allPointsRef = useRef<Point[]>([]);
   const startedAt = useRef<number>(0);
   const firstTouchAt = useRef<number>(0);
+  const vibrationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (vibrationIntervalRef.current) {
+        clearInterval(vibrationIntervalRef.current);
+        vibrationIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setCurrentPoints([]);
     setAllPoints([]);
+    currentPointsRef.current = [];
+    allPointsRef.current = [];
+    /* Stroke timing anchors must not survive a canvas reset — otherwise a
+     * stale first-ever touch leaks into the next round's duration math. */
+    firstTouchAt.current = 0;
+    startedAt.current = 0;
   }, [resetKey]);
 
   const panResponder = useMemo(
@@ -55,23 +74,39 @@ export default function DrawingCanvas({ onStrokeCommitted, resetKey, cosmeticVis
             firstTouchAt.current = now;
           }
           startedAt.current = now;
+          currentPointsRef.current = [{ x: locationX, y: locationY }];
           setCurrentPoints([{ x: locationX, y: locationY }]);
+
+          if (isStabilityMode) {
+            Vibration.vibrate(50);
+            vibrationIntervalRef.current = setInterval(() => {
+              Vibration.vibrate(50);
+            }, 300);
+          }
         },
         onPanResponderMove: (event) => {
           const { locationX, locationY } = event.nativeEvent;
-          setCurrentPoints((prev) => [...prev, { x: locationX, y: locationY }]);
+          const next = [...currentPointsRef.current, { x: locationX, y: locationY }];
+          currentPointsRef.current = next;
+          setCurrentPoints(next);
         },
         onPanResponderRelease: () => {
           const endedAt = Date.now();
-          setAllPoints((prev) => {
-            const merged = [...prev, ...currentPoints];
-            onStrokeCommitted(merged, firstTouchAt.current, endedAt);
-            return merged;
-          });
+          if (vibrationIntervalRef.current) {
+            clearInterval(vibrationIntervalRef.current);
+            vibrationIntervalRef.current = null;
+          }
+          // Commit outside the setState updater: side effects inside an
+          // updater can double-fire under StrictMode and award twice.
+          const merged = [...allPointsRef.current, ...currentPointsRef.current];
+          allPointsRef.current = merged;
+          currentPointsRef.current = [];
+          setAllPoints(merged);
           setCurrentPoints([]);
+          onStrokeCommitted(merged, firstTouchAt.current, endedAt);
         }
       }),
-    [currentPoints, onStrokeCommitted]
+    [onStrokeCommitted, isStabilityMode]
   );
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -92,7 +127,7 @@ export default function DrawingCanvas({ onStrokeCommitted, resetKey, cosmeticVis
   const visual = cosmeticVisual || DEFAULT_VISUAL;
 
   return (
-    <View style={[styles.container, { borderColor: visual.frameColor }]} onLayout={onLayout} {...panResponder.panHandlers}>
+    <View style={styles.container} onLayout={onLayout} {...panResponder.panHandlers}>
       <Svg width={canvasW} height={canvasH}>
         {visual.trailColor ? (
           <Path d={pointsToPath(smoothedAllPoints)} fill="none" stroke={visual.trailColor} strokeWidth={visual.trailWidth || 8} />
@@ -110,11 +145,10 @@ export default function DrawingCanvas({ onStrokeCommitted, resetKey, cosmeticVis
 const styles = StyleSheet.create({
   container: {
     width: "100%",
-    height: 340,
+    flex: 1,
     borderRadius: PRECISION_RADIUS.card,
-    backgroundColor: "#080e1c",
-    borderWidth: 1.5,
-    borderColor: PRECISION_COLORS.cyanSoft,
+    backgroundColor: "rgba(4,6,10,0.92)",
+    borderWidth: 0,
     overflow: "hidden"
   }
 });

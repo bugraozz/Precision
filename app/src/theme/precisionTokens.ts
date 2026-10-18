@@ -1,131 +1,130 @@
 export const PRECISION_COLORS = {
-  // Deep obsidian backgrounds
-  bg: "#0a1628",
-  overlayScrim: "rgba(0, 0, 0, 0.72)",
-  tutorialCardBg: "#0c1120",
-  bgSoft: "rgba(6,10,22,0.88)",
-  bgSoftAlt: "rgba(8,14,28,0.78)",
-  bgPanel: "rgba(6,12,24,0.92)",
-  bgPanelMuted: "rgba(8,14,26,0.86)",
-  bgPanelSoft: "rgba(6,12,24,0.88)",
-  bgPanelStrong: "rgba(6,12,24,0.94)",
-  bgMission: "rgba(5,10,20,0.9)",
-  bgInventory: "rgba(5,14,30,0.82)",
-  bgTargetCard: "rgba(4,12,26,0.94)",
-  bgMeta: "rgba(6,12,22,0.82)",
-  bgMetaSoft: "rgba(6,12,22,0.84)",
-  bgLoadout: "rgba(4,12,26,0.78)",
-  bgCard: "rgba(6,18,36,0.74)",
-  bgGlass: "rgba(14,24,48,0.72)",
+  // ── Canvas ────────────────────────────────────────────────────────────────
+  bg: "#070508",
+  bgSoft: "rgba(8,5,7,0.88)",
+  bgPanelStrong: "rgba(12,7,10,0.92)",
 
-  // Premium text hierarchy
-  text: "#f0f2f8",
+  // ── Glass surfaces ────────────────────────────────────────────────────────
+  surface: "rgba(255,255,255,0.04)",
+  surfaceStrong: "rgba(255,255,255,0.06)",
+  surfaceSunken: "rgba(0,0,0,0.35)",
+
+  // ── Text hierarchy ────────────────────────────────────────────────────────
+  text: "#f1edee",
   textStrong: "#ffffff",
-  textMuted: "#8896b0",
-  textDim: "#b8c4d8",
-  textSubtle: "#7d8da8",
-  textSection: "#6880a0",
-  textCardTitle: "#edf1f8",
-  textCardMeta: "#8898b4",
-  textBody: "#a0b0c8",
-  textBodyAlt: "#98a6bc",
-  textBodyMuted: "#7890b0",
-  textPanelIcon: "#6880a0",
-  textPanelActive: "#fcd77a",
-  textClaim: "#fcd77a",
-  textIconButton: "#c0c8d8",
-  textMechanic: "#b0c0d8",
-  textGhost: "#a0aab8",
-  textStatus: "#7888a0",
-  textCompleteSub: "#8090a8",
-  textCompleteButton: "#d0d8e8",
-  textPremium: "#e8edf6",
-  textTutorial: "#a0b0c8",
-  textTutorialGhost: "#b0b8c8",
-  textLiveValue: "#d0d8e8",
-  textPlaySubtle: "#4a5568",
-  textSoft: "#90a0b8",
-  accentSoft: "#22d3ee",
+  textMuted: "#948c90",
+  textDim: "#cfc5c9",
+  textSubtle: "#767074",
+  textBodyMuted: "#8a8186",
+  textCardMeta: "#8f878c",
+  textClaim: "#ecd9b0",
 
-  // Glass borders
-  border: "rgba(255,255,255,0.12)",
-  borderCard: "rgba(255,255,255,0.1)",
+  // ── Accents ───────────────────────────────────────────────────────────────
+  accentSoft: "#67e8f9",
+
+  // ── Crimson / ruby (primary) ──────────────────────────────────────────────
+  primary: "#e11d48",
+  primaryStrong: "#fb7185",
+  primaryDeep: "#9f1239",
+  primaryInk: "#ffffff",
+  primarySoft: "rgba(225,29,72,0.16)",
+  primarySoftMid: "rgba(225,29,72,0.11)",
+  primarySoftBadge: "rgba(225,29,72,0.09)",
+  primaryTint: "rgba(225,29,72,0.16)",
+  primaryAura: "rgba(225,29,72,0.07)",
+
+  // ── Hot rose (premium VIP) ────────────────────────────────────────────────
+  pink: "#f43f5e",
+  pinkStrong: "#fda4af",
+  pinkSoft: "rgba(244,63,94,0.13)",
+  pinkSoftBadge: "rgba(244,63,94,0.09)",
+  pinkAura: "rgba(244,63,94,0.06)",
+
+  // ── Ice silver (cool counterweight) ───────────────────────────────────────
+  cyan: "#aebccd",
+  cyanStrong: "#c3d0de",
+  cyanSoft: "rgba(174,188,205,0.22)",
+  cyanTagBg: "rgba(174,188,205,0.1)",
+  cyanAura: "rgba(174,188,205,0.05)",
+  cyanTint: "rgba(174,188,205,0.09)",
+  cyanGlow: "rgba(174,188,205,0.14)",
+
+  // ── Champagne gold (VIP / highlights) ─────────────────────────────────────
+  gold: "#d4af6a",
+  goldStrong: "#ecd9b0",
+  goldSoft: "rgba(212,175,106,0.14)",
+
+  // ── Emerald (coins / success) ─────────────────────────────────────────────
+  emerald: "#34d399",
+  emeraldSoft: "rgba(52,211,153,0.12)",
+
+  // ── Amber (stars / rank 1) ────────────────────────────────────────────────
+  amber: "#fbbf24",
+  amberStrong: "#fcd34d",
+  amberSoft: "rgba(251,191,36,0.12)",
+
+  // ── Bronze (rank 3) ───────────────────────────────────────────────────────
+  bronze: "#e0a075",
+
+  // ── Glass whites ──────────────────────────────────────────────────────────
+  whiteSoftest: "rgba(255,255,255,0.025)",
+  whiteSoft: "rgba(255,255,255,0.045)",
+  whiteTint: "rgba(255,255,255,0.22)",
+  whiteTrack: "rgba(255,255,255,0.07)",
+
+  // ── Borders ───────────────────────────────────────────────────────────────
+  border: "rgba(255,255,255,0.09)",
+  borderCard: "rgba(255,255,255,0.08)",
   borderMuted: "rgba(255,255,255,0.05)",
   borderFaint: "rgba(255,255,255,0.04)",
-  borderPanel: "rgba(255,255,255,0.1)",
+  borderPanel: "rgba(255,255,255,0.08)",
   borderSoft: "rgba(255,255,255,0.12)",
-  borderGoldSoft: "rgba(252,215,122,0.2)",
-  borderGold: "rgba(252,215,122,0.28)",
-  borderGoldStrong: "rgba(252,215,122,0.44)",
-  borderGoldHeavy: "rgba(252,215,122,0.48)",
-  borderGoldPress: "rgba(252,215,122,0.52)",
-  borderGoldActive: "rgba(252,215,122,0.56)",
+  borderGoldSoft: "rgba(212,175,106,0.24)",
+  borderGold: "rgba(212,175,106,0.3)",
+  borderGoldStrong: "rgba(236,217,176,0.46)",
+  borderGoldHeavy: "rgba(236,217,176,0.5)",
+  borderGoldPress: "rgba(236,217,176,0.55)",
+  borderGoldActive: "rgba(236,217,176,0.55)",
   borderGuide: "rgba(148,163,184,0.25)",
   borderLight: "rgba(248,250,252,0.12)",
 
-  // Luxe gold primary
-  primary: "#f59e0b",
-  primaryStrong: "#fbbf24",
-  primarySoft: "rgba(251,191,36,0.18)",
-  primarySoftMid: "rgba(251,191,36,0.1)",
-  primarySoftBadge: "rgba(251,191,36,0.06)",
-  primarySoftLow: "rgba(251,191,36,0.08)",
-  primarySoftLighter: "rgba(251,191,36,0.06)",
-  primaryTint: "rgba(251,191,36,0.14)",
-  primaryAura: "rgba(251,191,36,0.06)",
-
-  // Electric cyan accent
-  cyan: "#22d3ee",
-  cyanSoft: "rgba(34,211,238,0.22)",
-  cyanTagBg: "rgba(34,211,238,0.1)",
-  cyanAura: "rgba(34,211,238,0.05)",
-  cyanTint: "rgba(34,211,238,0.08)",
-  cyanGlow: "rgba(34,211,238,0.18)",
-
-  // Glass whites
-  whiteSoftest: "rgba(255,255,255,0.02)",
-  whiteUltraSoft: "rgba(255,255,255,0.015)",
-  whiteSoft: "rgba(255,255,255,0.04)",
-  whiteTint: "rgba(255,255,255,0.22)",
-  whiteTrack: "rgba(255,255,255,0.06)",
-
-  // Shadows
+  // ── Shadow ────────────────────────────────────────────────────────────────
   shadowBlack: "#000000",
-  shadowDeep: "#010810",
+  shadowDeep: "#0a0206",
 
-  // Feedback
+  // ── Feedback ──────────────────────────────────────────────────────────────
   success: "#34d399",
   danger: "#f87171",
 
-  // Mechanic colors — vivid neon
+  // ── Mechanics ─────────────────────────────────────────────────────────────
   mechanicSpeed: "#fb923c",
-  mechanicSpeedBg: "rgba(249,115,22,0.12)",
-  mechanicStability: "#22d3ee",
-  mechanicStabilityBg: "rgba(6,182,212,0.12)",
+  mechanicSpeedBg: "rgba(251,146,60,0.13)",
+  mechanicStability: "#7dd3fc",
+  mechanicStabilityBg: "rgba(56,189,248,0.13)",
   mechanicSymmetry: "#4ade80",
-  mechanicSymmetryBg: "rgba(74,222,128,0.12)",
-  mechanicMemory: "#e879f9",
-  mechanicMemoryBg: "rgba(232,121,249,0.12)",
+  mechanicSymmetryBg: "rgba(74,222,128,0.13)",
+  mechanicMemory: "#fda4af",
+  mechanicMemoryBg: "rgba(244,63,94,0.13)",
 
-  // Boss
-  bossText: "#fca5a5",
+  // ── Boss ──────────────────────────────────────────────────────────────────
+  bossText: "#f87171",
   bossBg: "rgba(248,113,113,0.16)",
 
-  // Icon
-  iconTileText: "#fcd77a"
+  // ── Icon ──────────────────────────────────────────────────────────────────
+  iconTileText: "#ecd9b0"
 } as const;
 
 export const PRECISION_GRADIENTS = {
-  hero: ["#0a1628", "#0e1e3a", "#122848", "#0e1e3a", "#0a1628"] as const,
-  heroBottom: ["#0e1e3a", "#0a1628"] as const,
-  warmOverlay: ["rgba(251,191,36,0.04)", "rgba(251,191,36,0)"] as const,
-  cyanOverlay: ["rgba(34,211,238,0.03)", "rgba(34,211,238,0)"] as const,
-  diagonalAccent: ["rgba(251,191,36,0.03)", "rgba(34,211,238,0.02)", "rgba(251,191,36,0)"] as const,
-  primary: ["#fcd34d", "#f59e0b", "#d97706"] as const,
-  cyanGlow: ["rgba(34,211,238,0.12)", "rgba(34,211,238,0)"] as const,
-  cardShine: ["rgba(255,255,255,0.06)", "rgba(255,255,255,0)"] as const,
-  premiumBanner: ["#f59e0b", "#d97706", "#b45309"] as const,
-  meshGlow: ["rgba(34,211,238,0.06)", "rgba(251,191,36,0.04)", "rgba(34,211,238,0.02)", "transparent"] as const
+  /** Full-screen ambience: warm black → deep wine */
+  hero: ["#070508", "#100a0e", "#170a12", "#100a0e", "#070508"] as const,
+  heroBottom: ["#100a0e", "#070508"] as const,
+  /** Ruby melt: rose → crimson → dark ruby */
+  primary: ["#fb7185", "#e11d48", "#9f1239"] as const,
+  /** Faint vertical sheen on cards */
+  cardGloss: ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.015)"] as const,
+  cyanGlow: ["rgba(174,188,205,0.1)", "rgba(174,188,205,0)"] as const,
+  pinkGlow: ["rgba(244,63,94,0.12)", "rgba(244,63,94,0)"] as const,
+  rubyGlow: ["rgba(225,29,72,0.14)", "rgba(225,29,72,0)"] as const
 } as const;
 
 export const PRECISION_SPACE = {
@@ -138,64 +137,58 @@ export const PRECISION_SPACE = {
   xxl: 22,
   xxxl: 28,
   hero: 34,
-  screen: 24,
+  screen: 22,
   giant: 36,
   massive: 48,
   overlay: 64
 } as const;
 
 export const PRECISION_RADIUS = {
-  sm: 12,
-  md: 14,
-  lg: 16,
-  xl: 20,
-  xxl: 24,
-  card: 28,
+  sm: 10,
+  md: 12,
+  lg: 14,
+  xl: 16,
+  xxl: 20,
+  card: 22,
   pill: 999
 } as const;
 
 export const PRECISION_TYPE = {
-  caption: 10,
-  label: 11,
+  caption: 9,
+  label: 10,
   body: 13,
   sub: 14,
   title: 16,
-  section: 20,
+  section: 19,
   metric: 26,
-  hero: 36,
-  display: 42,
+  hero: 34,
+  display: 40,
   displayLg: 48
 } as const;
 
 export const PRECISION_SHADOW = {
   sm: {
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3
   },
   md: {
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 8
   },
   lg: {
-    shadowOpacity: 0.5,
-    shadowRadius: 32,
+    shadowOpacity: 0.45,
+    shadowRadius: 28,
     shadowOffset: { width: 0, height: 16 },
-    elevation: 16
-  },
-  xl: {
-    shadowOpacity: 0.55,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 24 },
-    elevation: 24
+    elevation: 14
   },
   glow: {
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
+    shadowOpacity: 0.4,
+    shadowRadius: 22,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 12
+    elevation: 10
   }
 } as const;

@@ -6,18 +6,15 @@ export function normalizeClaimRewardResponse(raw: {
   reason?: string;
   error?: string;
   rewardCoins?: number;
-  rewardGems?: number;
   coinsBalance?: number;
 }): ClaimRewardNormalized {
   const rewardCoins = Number.isFinite(raw.rewardCoins) ? Number(raw.rewardCoins) : 0;
-  const rewardGems = Number.isFinite(raw.rewardGems) ? Number(raw.rewardGems) : 0;
   const coinsBalance = Number.isFinite(raw.coinsBalance) ? Number(raw.coinsBalance) : undefined;
 
   return {
     accepted: Boolean(raw.accepted),
     reason: typeof raw.reason === "string" ? raw.reason : typeof raw.error === "string" ? raw.error : undefined,
     rewardCoins: Math.max(0, rewardCoins),
-    rewardGems: Math.max(0, rewardGems),
     coinsBalance,
   };
 }
@@ -26,7 +23,7 @@ export function getLocalQuestReward(
   state: ProgressionState,
   boardType: "daily" | "weekly",
   questId: string
-): { rewardCoins: number; rewardGems: number } | null {
+): { rewardCoins: number } | null {
   const source =
     boardType === "daily"
       ? state.dailyBoard.quests
@@ -37,8 +34,7 @@ export function getLocalQuestReward(
   }
 
   return {
-    rewardCoins: Math.max(0, Number(quest.rewardCoins || 0)),
-    rewardGems: Math.max(0, Number(quest.rewardGems || 0))
+    rewardCoins: Math.max(0, Number(quest.rewardCoins || 0))
   };
 }
 

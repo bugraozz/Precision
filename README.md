@@ -52,6 +52,7 @@ npm run functions:serve
 ```bash
 npm run app:install
 npm run app:start
+
 ```
 
 Set `app/.env` from `app/.env.example` and provide `EXPO_PUBLIC_ROUND_SUBMIT_URL`.

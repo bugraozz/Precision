@@ -1,4 +1,4 @@
-import { RoundInput, ScoreResult } from "../../src/core/types";
+import { Point, RoundInput, ScoreResult } from "../../src/core/types";
 
 export type RoundSubmitPayload = RoundInput & {
   levelId?: string;
@@ -324,6 +324,7 @@ export type ChallengeEntry = {
   accuracyPercent: number;
   stars: number;
   xpGained: number;
+  points?: Point[];
   submittedAt?: unknown;
 };
 
@@ -342,6 +343,7 @@ export type ChallengeSubmitPayload = {
   displayName?: string;
   shape: string;
   points: { x: number; y: number }[];
+  canvasMinDim?: number;
 };
 
 export type ChallengeSubmitResponse = {
@@ -403,4 +405,137 @@ export async function challengeSubmit(payload: ChallengeSubmitPayload): Promise<
   } catch {
     return { accepted: false };
   }
+}
+
+// ─── Duel ────────────────────────────────────────────────────────────────────
+
+export type DuelTurnSummary = {
+  userId: string;
+  displayName: string;
+  accuracyPercent: number;
+  stars: number;
+  xpGained: number;
+  duelScore: number;
+};
+
+export type DuelEntry = {
+  duelId: string;
+  status: "waiting" | "active" | "finished";
+  shape: string;
+  difficulty: string;
+  creatorId: string;
+  creatorName: string;
+  challengerId: string | null;
+  challengerName: string | null;
+  winnerUserId: string | null;
+  creatorSubmitted: boolean;
+  challengerSubmitted: boolean;
+  expiresAt: number;
+};
+
+export type DuelCreatePayload = {
+  userId: string;
+  displayName?: string;
+  shape: string;
+  difficulty?: "easy" | "medium" | "hard";
+};
+
+export type DuelCreateResponse = {
+  accepted: boolean;
+  duelId?: string;
+  shape?: string;
+  difficulty?: string;
+  expiresAt?: number;
+  error?: string;
+};
+
+export type DuelJoinPayload = {
+  duelId: string;
+  userId: string;
+  displayName?: string;
+  points: { x: number; y: number }[];
+};
+
+export type DuelJoinResponse = {
+  accepted: boolean;
+  duelId?: string;
+  accuracyPercent?: number;
+  stars?: number;
+  xpGained?: number;
+  duelScore?: number;
+  reason?: string;
+};
+
+export type DuelResolvePayload = { duelId: string };
+
+export type DuelResolveResponse = {
+  duelId: string;
+  status: string;
+  winnerUserId?: string | null;
+  waiting?: boolean;
+  creatorSubmitted?: boolean;
+  challengerSubmitted?: boolean;
+  creatorTurn?: DuelTurnSummary | null;
+  challengerTurn?: DuelTurnSummary | null;
+  shape?: string;
+  difficulty?: string;
+};
+
+export type DuelGetPayload = { userId: string; limit?: number };
+export type DuelGetResponse = { duels: DuelEntry[] };
+
+const _env = () =>
+  (globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+
+async function _post<T>(envKey: string, payload: unknown, fallback: T): Promise<T> {
+  const endpoint = _env()?.[envKey];
+  if (!endpoint) return fallback;
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    return (await res.json()) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function duelCreate(payload: DuelCreatePayload): Promise<DuelCreateResponse> {
+  return _post<DuelCreateResponse>("EXPO_PUBLIC_DUEL_CREATE_URL", payload, { accepted: false });
+}
+
+export async function duelJoin(payload: DuelJoinPayload): Promise<DuelJoinResponse> {
+  return _post<DuelJoinResponse>("EXPO_PUBLIC_DUEL_JOIN_URL", payload, { accepted: false });
+}
+
+export async function duelResolve(payload: DuelResolvePayload): Promise<DuelResolveResponse> {
+  return _post<DuelResolveResponse>("EXPO_PUBLIC_DUEL_RESOLVE_URL", payload, {
+    duelId: payload.duelId,
+    status: "unknown",
+    waiting: true
+  });
+}
+
+export async function duelGet(payload: DuelGetPayload): Promise<DuelGetResponse> {
+  return _post<DuelGetResponse>("EXPO_PUBLIC_DUEL_GET_URL", payload, { duels: [] });
+}
+
+// ─── Weekly Ladder Global ────────────────────────────────────────────────────
+
+export type WeeklyLadderEntry = {
+  userId: string;
+  displayName: string;
+  ladderPoints: number;
+  stars: number;
+  rounds: number;
+  weekKey: string;
+};
+
+export type WeeklyLadderGetPayload = { limit?: number };
+export type WeeklyLadderGetResponse = { weekKey: string; entries: WeeklyLadderEntry[] };
+
+export async function weeklyLadderGet(payload: WeeklyLadderGetPayload = {}): Promise<WeeklyLadderGetResponse> {
+  return _post<WeeklyLadderGetResponse>("EXPO_PUBLIC_WEEKLY_LADDER_GET_URL", payload, { weekKey: "", entries: [] });
 }

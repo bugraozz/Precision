@@ -1,16 +1,10 @@
 import React from "react";
-import { StyleSheet } from "react-native";
+import { Pressable } from "react-native";
 import { Text, View } from "tamagui";
 import { LevelConfig, getChapterById } from "../levels";
-import Pressable from "./TamaguiPressable";
 import { t, tShape, tDifficulty, tMechanic, tChapterTitle } from "../i18n";
-import {
-  PRECISION_COLORS,
-  PRECISION_RADIUS,
-  PRECISION_SHADOW,
-  PRECISION_SPACE,
-  PRECISION_TYPE
-} from "../theme/precisionTokens";
+import { PRECISION_COLORS, PRECISION_RADIUS } from "../theme/precisionTokens";
+import { ShapeMark } from "./ui";
 
 type LevelSelectorProps = {
   levels: LevelConfig[];
@@ -20,32 +14,16 @@ type LevelSelectorProps = {
   onSelect: (levelId: string) => void;
 };
 
-function mechanicMeta(tag: LevelConfig["mechanicTag"]): { color: string; bg: string } {
-  if (tag === "speed") {
-    return { color: PRECISION_COLORS.mechanicSpeed, bg: PRECISION_COLORS.mechanicSpeedBg };
-  }
-  if (tag === "stability") {
-    return { color: PRECISION_COLORS.mechanicStability, bg: PRECISION_COLORS.mechanicStabilityBg };
-  }
-  if (tag === "symmetry") {
-    return { color: PRECISION_COLORS.mechanicSymmetry, bg: PRECISION_COLORS.mechanicSymmetryBg };
-  }
+function mechanicMeta(tag: LevelConfig["mechanicTag"]) {
+  if (tag === "speed") return { color: PRECISION_COLORS.mechanicSpeed, bg: PRECISION_COLORS.mechanicSpeedBg };
+  if (tag === "stability") return { color: PRECISION_COLORS.mechanicStability, bg: PRECISION_COLORS.mechanicStabilityBg };
+  if (tag === "symmetry") return { color: PRECISION_COLORS.mechanicSymmetry, bg: PRECISION_COLORS.mechanicSymmetryBg };
   return { color: PRECISION_COLORS.mechanicMemory, bg: PRECISION_COLORS.mechanicMemoryBg };
 }
 
-function starsText(stars: 0 | 1 | 2 | 3): string {
-  return "★".repeat(stars) + "☆".repeat(3 - stars);
-}
-
-export default function LevelSelector({
-  levels,
-  selectedLevelId,
-  unlockedLevels,
-  bestStarsByLevel,
-  onSelect
-}: LevelSelectorProps) {
+export default function LevelSelector({ levels, selectedLevelId, unlockedLevels, bestStarsByLevel, onSelect }: LevelSelectorProps) {
   return (
-    <View style={styles.wrap}>
+    <View gap={10} mb={24}>
       {levels.map((level) => {
         const unlocked = unlockedLevels.includes(level.id);
         const selected = selectedLevelId === level.id;
@@ -57,240 +35,113 @@ export default function LevelSelector({
             key={level.id}
             onPress={() => onSelect(level.id)}
             disabled={!unlocked}
-            style={({ pressed }) => [
-              styles.item,
-              selected && styles.itemSelected,
-              !unlocked && styles.itemLocked,
-              pressed && unlocked && styles.itemPressed
-            ]}
+            style={({ pressed }) => ({
+              borderRadius: PRECISION_RADIUS.xxl,
+              borderWidth: 1,
+              borderColor: selected
+                ? "rgba(225,29,72,0.3)"
+                : unlocked
+                  ? PRECISION_COLORS.border
+                  : PRECISION_COLORS.borderFaint,
+              backgroundColor: selected ? PRECISION_COLORS.primarySoftMid : PRECISION_COLORS.surface,
+              paddingVertical: 12,
+              paddingLeft: 14,
+              paddingRight: 14,
+              overflow: "hidden",
+              opacity: unlocked ? 1 : 0.45,
+              transform: [{ scale: pressed && unlocked ? 0.98 : 1 }]
+            })}
           >
-            {selected && <View style={styles.selectedIndicator} />}
+            {selected ? (
+              <View pos="absolute" l={0} t={12} b={12} w={3} br={2} bg={PRECISION_COLORS.primaryStrong} />
+            ) : null}
 
-            <View style={styles.leftRow}>
-              <View style={[styles.iconTile, selected && styles.iconTileSelected, !unlocked && styles.iconTileLocked]}>
-                <Text style={[styles.iconTileText, !unlocked && { color: PRECISION_COLORS.textMuted }]}>{level.targetShape.slice(0, 1).toUpperCase()}</Text>
-                {stars > 0 && unlocked && (
-                  <View style={styles.starsBadge}>
-                    <Text style={styles.starsBadgeText}>{stars}</Text>
-                    <Text style={styles.starsBadgeStar}>{"\u2605"}</Text>
-                  </View>
-                )}
+            <View flexDirection="row" ai="center" gap={12} pl={selected ? 8 : 0}>
+              {/* Level number */}
+              <View
+                w={48} h={48} br={PRECISION_RADIUS.lg} ai="center" jc="center"
+                bg={selected ? PRECISION_COLORS.primarySoft : PRECISION_COLORS.surfaceSunken}
+                bw={1}
+                borderColor={selected ? "rgba(225,29,72,0.24)" : PRECISION_COLORS.border}
+              >
+                <Text
+                  color={unlocked
+                    ? (selected ? PRECISION_COLORS.primaryStrong : PRECISION_COLORS.textDim)
+                    : PRECISION_COLORS.textMuted}
+                  fow="900" fos={16} ls={-0.3}
+                >
+                  {String(level.index).padStart(2, "0")}
+                </Text>
               </View>
 
-              <View style={styles.metaWrap}>
-                <View style={styles.titleRow}>
-                  <Text style={[styles.levelTitle, !unlocked && { color: PRECISION_COLORS.textMuted }]}>
-                    {t("levelLabel")} {level.index}
+              {/* Text & tags */}
+              <View f={1}>
+                <View flexDirection="row" ai="center" gap={8}>
+                  <Text
+                    color={unlocked ? PRECISION_COLORS.textStrong : PRECISION_COLORS.textMuted}
+                    fow="900" fos={15} ls={-0.2}
+                  >
+                    {tShape(level.targetShape)}
                   </Text>
-                  {level.isBoss && <Text style={styles.bossTag}>{t("boss")}</Text>}
+                  {level.isBoss ? (
+                    <View bg={PRECISION_COLORS.bossBg} br={PRECISION_RADIUS.pill} px={8} py={2}>
+                      <Text color={PRECISION_COLORS.bossText} fos={8.5} fow="900" ls={1}>{t("boss")}</Text>
+                    </View>
+                  ) : null}
                 </View>
-                <Text style={[styles.levelSubtitle, !unlocked && { color: PRECISION_COLORS.textPlaySubtle }]}>
-                  {(() => {
-                    const ch = getChapterById(level.chapterId);
-                    const chTitle = ch ? tChapterTitle(ch.title) : "";
-                    if (level.isBoss) return `${chTitle} ${t("bossRound")}`;
-                    const localNum = level.title.match(/\d+$/)?.[0] || "";
-                    return `${chTitle} ${localNum}`;
-                  })()}
+                <Text
+                  color={unlocked ? PRECISION_COLORS.textMuted : PRECISION_COLORS.textSubtle}
+                  fos={10} mt={3} fow="700" ls={0.6} textTransform="uppercase"
+                  numberOfLines={1}
+                >
+                  {getChapterById(level.chapterId) ? tChapterTitle(getChapterById(level.chapterId)!.title) : ""}
                 </Text>
-                <View style={styles.tagRow}>
-                  <Text style={[styles.levelTag, { color: mechanic.color, backgroundColor: mechanic.bg }]}>
-                    {tMechanic(level.mechanicTag).toUpperCase()}
+
+                <View flexDirection="row" mt={8} ai="center" gap={8}>
+                  <View bg={mechanic.bg} br={PRECISION_RADIUS.pill} px={10} py={3}>
+                    <Text color={mechanic.color} fos={9} fow="800" ls={0.8}>
+                      {tMechanic(level.mechanicTag).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View bg={PRECISION_COLORS.whiteSoft} br={PRECISION_RADIUS.pill} px={10} py={3}>
+                    <Text
+                      color={PRECISION_COLORS.textCardMeta}
+                      fos={9} fow="800" ls={0.8}
+                      opacity={unlocked ? 1 : 0.5}
+                    >
+                      {tDifficulty(level.difficulty).toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Stars + action */}
+              <View ai="flex-end" jc="center" gap={6}>
+                <Text color={PRECISION_COLORS.amberStrong} fos={11} fow="900" ls={1}>
+                  {"★".repeat(stars)}
+                  <Text color={PRECISION_COLORS.textMuted} fos={11} fow="700">
+                    {"☆".repeat(Math.max(0, 3 - stars))}
                   </Text>
-                  <Text style={[styles.difficultyTag, !unlocked && { opacity: 0.5 }]}>{tDifficulty(level.difficulty).toUpperCase()}</Text>
+                </Text>
+                <View
+                  w={32} h={32} br={PRECISION_RADIUS.lg} ai="center" jc="center"
+                  bg={selected ? PRECISION_COLORS.primary : PRECISION_COLORS.surfaceSunken}
+                  bw={1}
+                  borderColor={selected ? PRECISION_COLORS.primary : PRECISION_COLORS.border}
+                >
+                  {unlocked ? (
+                    <Text color={selected ? PRECISION_COLORS.primaryInk : PRECISION_COLORS.textMuted} fos={14} fow="900">
+                      ›
+                    </Text>
+                  ) : (
+                    <ShapeMark shape="circle" size={9} color={PRECISION_COLORS.textSubtle} strokeWidth={2.6} />
+                  )}
                 </View>
               </View>
             </View>
-
-            {unlocked ? (
-              <View style={[styles.playButton, selected && styles.playButtonSelected]}>
-                <Text style={[styles.playButtonText, selected && styles.playButtonTextSelected]}>{"\u25B6"}</Text>
-              </View>
-            ) : (
-              <View style={styles.lockIcon}>
-                <Text style={styles.lockIconText}>{"\uD83D\uDD12"}</Text>
-              </View>
-            )}
           </Pressable>
         );
       })}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    gap: 10,
-    marginBottom: PRECISION_SPACE.xxl
-  },
-  item: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(10,20,42,0.85)",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    overflow: "hidden"
-  },
-  selectedIndicator: {
-    position: "absolute",
-    left: 0,
-    top: 8,
-    bottom: 8,
-    width: 3,
-    borderRadius: 2,
-    backgroundColor: PRECISION_COLORS.primaryStrong
-  },
-  leftRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    flex: 1
-  },
-  iconTile: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: PRECISION_COLORS.borderGold,
-    backgroundColor: PRECISION_COLORS.primaryTint,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  iconTileSelected: {
-    borderColor: PRECISION_COLORS.borderGoldStrong,
-    backgroundColor: "rgba(251,191,36,0.18)"
-  },
-  iconTileLocked: {
-    borderColor: "rgba(255,255,255,0.06)",
-    backgroundColor: "rgba(255,255,255,0.03)"
-  },
-  iconTileText: {
-    color: PRECISION_COLORS.iconTileText,
-    fontWeight: "900",
-    fontSize: 20
-  },
-  starsBadge: {
-    position: "absolute",
-    bottom: -4,
-    right: -4,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(251,191,36,0.9)",
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    gap: 1
-  },
-  starsBadgeText: {
-    color: "#1a1000",
-    fontSize: 9,
-    fontWeight: "900"
-  },
-  starsBadgeStar: {
-    color: "#1a1000",
-    fontSize: 7,
-    fontWeight: "900"
-  },
-  metaWrap: {
-    flex: 1
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8
-  },
-  itemSelected: {
-    borderColor: "rgba(252,215,122,0.35)",
-    backgroundColor: "rgba(251,191,36,0.08)"
-  },
-  itemLocked: {
-    opacity: 0.4
-  },
-  itemPressed: {
-    transform: [{ scale: 0.98 }],
-    opacity: 0.88
-  },
-  levelTitle: {
-    color: PRECISION_COLORS.textStrong,
-    fontWeight: "900",
-    fontSize: 15,
-    letterSpacing: -0.2
-  },
-  levelSubtitle: {
-    color: PRECISION_COLORS.textDim,
-    fontSize: 12,
-    marginTop: 2,
-    fontWeight: "600"
-  },
-  tagRow: {
-    marginTop: 6,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8
-  },
-  levelTag: {
-    fontSize: 9,
-    fontWeight: "900",
-    borderRadius: PRECISION_RADIUS.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    letterSpacing: 0.8
-  },
-  difficultyTag: {
-    color: PRECISION_COLORS.textCardMeta,
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: PRECISION_RADIUS.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 3
-  },
-  bossTag: {
-    color: PRECISION_COLORS.bossText,
-    fontSize: 9,
-    fontWeight: "900",
-    backgroundColor: PRECISION_COLORS.bossBg,
-    borderRadius: PRECISION_RADIUS.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    letterSpacing: 0.8
-  },
-  playButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
-  },
-  playButtonSelected: {
-    backgroundColor: PRECISION_COLORS.primary,
-    borderColor: PRECISION_COLORS.primary
-  },
-  playButtonText: {
-    color: PRECISION_COLORS.textMuted,
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  playButtonTextSelected: {
-    color: "#1a1000"
-  },
-  lockIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.03)",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  lockIconText: {
-    fontSize: 14
-  }
-});

@@ -36,5 +36,17 @@ service cloud.firestore {
       allow read: if true;
       allow create, update, delete: if false;
     }
+
+    match /duels/{duelId} {
+      // Publicly readable so anyone can join by duelId
+      allow read: if true;
+      // Only Cloud Functions may write (backend-only mutations)
+      allow create, update, delete: if false;
+    }
+
+    match /weeklyLadder/{entryId} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
   }
 }

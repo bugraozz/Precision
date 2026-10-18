@@ -1,11 +1,11 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
   SafeAreaView,
   StatusBar
 } from "react-native";
-import { TamaguiProvider, Theme, View } from "tamagui";
+import { TamaguiProvider, Theme } from "tamagui";
 import tamaguiConfig from "./tamagui.config";
 import {
   createAdShownEvent,
@@ -21,7 +21,8 @@ import {
   computeAccuracyPercentByVersion,
   getScoringVersionFromEnvValue,
   minimumRequiredPoints,
-  scoreRound
+  scoreRound,
+  scoreRoundDetailed
 } from "../src/core/scoring";
 import { Point, RoundInput } from "../src/core/types";
 import { flushAnalyticsQueue, logAnalyticsEvent } from "./src/analytics";
@@ -30,12 +31,21 @@ import {
   challengeSubmit,
   claimQuestReward,
   entitlementSync,
+  leaderboardGet,
+  duelCreate,
+  duelGet,
+  duelJoin,
+  duelResolve,
+  weeklyLadderGet,
   purchaseVerify,
   submitRound,
   toRoundSubmitPayload
 } from "./src/api";
 import type {
-  ChallengeEntry
+  ChallengeEntry,
+  DuelEntry,
+  WeeklyLadderEntry,
+  LeaderboardEntry
 } from "./src/api";
 import { getCosmeticCatalogBySlot, getCosmeticVisualFromLoadout } from "./src/cosmetics";
 import {
@@ -56,6 +66,7 @@ import { loadPremiumState, setPremiumNoAds } from "./src/monetization";
 import { hasSeenTutorial, markTutorialSeen } from "./src/onboarding";
 import {
   activatePremiumBenefits,
+  applyDailyShapeResult,
   applyEntitlementSnapshot,
   applyRoundProgress,
   buyEnergyRefill,
@@ -63,10 +74,13 @@ import {
   consumeEnergyForPlay,
   DEFAULT_LEVEL_ID,
   DEFAULT_PROGRESSION,
+  DAILY_SHAPE_REWARD_COINS,
   ENERGY_REFILL_COIN_COST,
+  getChallengeBestStroke,
   getChapterUnlockProgress,
   getClaimableDailyQuests,
   getClaimableWeeklyQuests,
+  getDailyShapeToday,
   getEnergySnapshot,
   getMechanicSummary,
   getMasteryLevels,
@@ -77,25 +91,29 @@ import {
   ProgressionState,
   refreshProgressionState,
   selectPremiumCosmeticItem,
-  saveProgression
+  saveProgression,
+  updateChallengeBest
 } from "./src/progression";
 import { getRewardedAdsConfig } from "./src/remoteConfig";
-import { SPEED_PAR_RATIO, TUTORIAL_STEPS } from "./src/constants/gameplay";
+import { SPEED_PAR_RATIO } from "./src/constants/gameplay";
 import type { RoundFeedback, HomePanelKey } from "./src/types/app";
 import { targetShapePath } from "./src/utils/shapePreview";
 import { applyMechanicPressure } from "./src/utils/mechanics";
 import { normalizeClaimRewardResponse, getLocalQuestReward, isQuestClaimableLocally, isQuestAlreadyClaimedLocally } from "./src/utils/claimRewards";
-import { styles } from "./src/styles";
-import { useLanguage, t, tShape, tChapterTitle } from "./src/i18n";
+import { useLanguage, t, tShape, TUTORIAL_STEPS_I18N, tChapterTitle } from "./src/i18n";
 import type { Lang } from "./src/i18n";
+import { PRECISION_COLORS } from "./src/theme/precisionTokens";
+import { ScreenAmbience } from "./src/components/ui";
 import MainScreen from "./src/screens/MainScreen";
 import LevelsScreen from "./src/screens/LevelsScreen";
 import PlayScreen from "./src/screens/PlayScreen";
 import CompleteScreen from "./src/screens/CompleteScreen";
 import TutorialOverlay from "./src/screens/TutorialOverlay";
 
+const canScoreLocal = (points: Point[]) => points.length > 2;
+
 export default function App() {
-  const [lang, setLang] = useLanguage();
+  const MEMORY_PEEK_LIMIT = 2;  const [lang, setLang] = useLanguage();
   const [sessionId] = useState(() => `session-${Date.now()}`);
   const sessionStartedAtRef = useRef(Date.now());
   const [screen, setScreen] = useState<"main" | "home" | "play" | "complete">("main");
@@ -113,7 +131,7 @@ export default function App() {
   const [awardedForCurrentStroke, setAwardedForCurrentStroke] = useState(false);
   const [selectedLevelId, setSelectedLevelId] = useState(DEFAULT_LEVEL_ID);
   const [selectedChapterId, setSelectedChapterId] = useState("chapter-1");
-  const [homePanel, setHomePanel] = useState<HomePanelKey>("overview");
+  const [homePanel, setHomePanel] = useState<HomePanelKey>("challenge");
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [rewardedAdsShownCount, setRewardedAdsShownCount] = useState(0);
@@ -123,12 +141,31 @@ export default function App() {
   const [claimingRewardKeys, setClaimingRewardKeys] = useState<Record<string, boolean>>({});
   const [lastClaimRewardText, setLastClaimRewardText] = useState<string | null>(null);
   const [memoryTargetVisible, setMemoryTargetVisible] = useState(true);
+  const [memoryPeeksUsed, setMemoryPeeksUsed] = useState(0);
+  const [canvasMinDim, setCanvasMinDim] = useState(360);
+  const [ghostPoints, setGhostPoints] = useState<Point[]>([]);
   const [challengeShape, setChallengeShape] = useState("circle");
   const [challengeEntries, setChallengeEntries] = useState<ChallengeEntry[]>([]);
   const [challengeLoading, setChallengeLoading] = useState(false);
   const [challengeDrawing, setChallengeDrawing] = useState(false);
   const [challengeDrawnPoints, setChallengeDrawnPoints] = useState<Point[]>([]);
   const [challengeResult, setChallengeResult] = useState<{ accuracyPercent: number; stars: number; xpGained: number } | null>(null);
+
+  // ─── Leaderboard State ───────────────────────────────────────────────────
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardShapeFilter, setLeaderboardShapeFilter] = useState<string>("");
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+
+  // ─── Weekly Ladder Global State ──────────────────────────────────────────
+  const [ladderEntries, setLadderEntries] = useState<WeeklyLadderEntry[]>([]);
+  const [ladderLoading, setLadderLoading] = useState(false);
+
+  // ─── Duel State ──────────────────────────────────────────────────────────
+  const [duelEntries, setDuelEntries] = useState<DuelEntry[]>([]);
+  const [duelLoading, setDuelLoading] = useState(false);
+  const [activeDuel, setActiveDuel] = useState<{ duelId: string; shape: string; difficulty: string } | null>(null);
+  const [duelJoinInput, setDuelJoinInput] = useState("");
+  const [duelCreateShape, setDuelCreateShape] = useState("circle");
   const claimInFlightRef = useRef<Set<string>>(new Set());
   const homeAnimValues = useRef(Array.from({ length: 5 }, () => new Animated.Value(0))).current;
   const playAnim = useRef(new Animated.Value(0)).current;
@@ -182,7 +219,7 @@ export default function App() {
     : canGoNextLevel
       ? `${t("nextLabel")}: L${getLevelById(nextLevelId).index}`
       : t("needOneStar");
-  const targetPreviewPath = useMemo(() => targetShapePath(selectedLevel.targetShape), [selectedLevel.targetShape]);
+  const targetPreviewPath = useMemo(() => targetShapePath(selectedLevel.targetShape, 120), [selectedLevel.targetShape]);
   const chapterLevels = useMemo(() => getLevelsForChapter(selectedChapterId), [selectedChapterId]);
 
   useEffect(() => {
@@ -313,30 +350,7 @@ export default function App() {
   }, [homePanel, screen, homePanelAnim]);
 
   useEffect(() => {
-    const sheenLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(ctaSheenAnim, {
-          toValue: 1,
-          duration: 1300,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true
-        }),
-        Animated.delay(1900),
-        Animated.timing(ctaSheenAnim, {
-          toValue: 0,
-          duration: 1,
-          useNativeDriver: true
-        })
-      ])
-    );
-
-    sheenLoop.start();
-    return () => sheenLoop.stop();
-  }, [ctaSheenAnim]);
-
-  useEffect(() => {
-    if (screen !== "play") {
-      playCtaPulseAnim.setValue(0);
+    if (screen !== "play" || activeMechanic !== "memory") {
       return;
     }
 
@@ -374,6 +388,31 @@ export default function App() {
     return () => clearInterval(timer);
   }, [screen, missionStartedAtMs]);
 
+  /* Speed mode: hard time limit — round auto-ends when the clock runs out. */
+  useEffect(() => {
+    if (screen !== "play" || playMode !== "level" || activeMechanic !== "speed" || feedback) {
+      return;
+    }
+    if (playClockMs < selectedLevel.timeLimitMs) {
+      return;
+    }
+    if (canScoreLocal(drawnPoints)) {
+      handleLocalScore();
+      return;
+    }
+    setFeedback({
+      source: "local",
+      accuracyPercent: 0,
+      meanDeviation: 1,
+      stars: 0,
+      xpGained: 0
+    });
+    void awardProgression(0, 0, 0, selectedLevel.timeLimitMs);
+    setScreen("complete");
+    setStatusText(`${t("speedTimeUp")}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playClockMs, screen, playMode, activeMechanic, feedback, drawnPoints]);
+
   useEffect(() => {
     if (screen !== "play") {
       setMemoryTargetVisible(true);
@@ -385,12 +424,17 @@ export default function App() {
       return;
     }
 
+    if (memoryPeeksUsed >= MEMORY_PEEK_LIMIT) {
+      setMemoryTargetVisible(false);
+      return;
+    }
+
     setMemoryTargetVisible(true);
     const timeout = setTimeout(() => {
       setMemoryTargetVisible(false);
     }, 1800);
     return () => clearTimeout(timeout);
-  }, [screen, activeMechanic, selectedLevelId, canvasResetKey]);
+  }, [screen, activeMechanic, selectedLevelId, canvasResetKey, memoryPeeksUsed]);
 
   const handlePremiumPurchase = async () => {
     if (hasPremiumNoAds || progression.premium.isActive) {
@@ -447,12 +491,68 @@ export default function App() {
     setChallengeLoading(false);
   }, []);
 
-  const startChallengePlay = () => {
+  const loadLeaderboard = useCallback(async (shape?: string) => {
+    setLeaderboardLoading(true);
+    const res = await leaderboardGet({ shape: shape || undefined, limit: 50 });
+    setLeaderboardEntries(res.entries || []);
+    setLeaderboardLoading(false);
+  }, []);
+
+  const loadWeeklyLadder = useCallback(async () => {
+    setLadderLoading(true);
+    const res = await weeklyLadderGet({ limit: 50 });
+    setLadderEntries(res.entries || []);
+    setLadderLoading(false);
+  }, []);
+
+  const loadDuels = useCallback(async () => {
+    setDuelLoading(true);
+    const res = await duelGet({ userId: "local-user", limit: 20 });
+    setDuelEntries(res.duels || []);
+    setDuelLoading(false);
+  }, []);
+
+  const handleCreateDuel = useCallback(async (shape: string, difficulty: "easy" | "medium" | "hard") => {
+    setDuelLoading(true);
+    const res = await duelCreate({ userId: "local-user", displayName: "Player", shape, difficulty });
+    if (res.accepted && res.duelId) {
+      setActiveDuel({ duelId: res.duelId, shape: res.shape || shape, difficulty: res.difficulty || difficulty });
+      void loadDuels();
+    }
+    setDuelLoading(false);
+    return res;
+  }, [loadDuels]);
+
+  const handleJoinDuel = useCallback(async (duelId: string, points: { x: number; y: number }[]) => {
+    setDuelLoading(true);
+    const res = await duelJoin({ duelId, userId: "local-user", displayName: "Player", points });
+    if (res.accepted) {
+      void loadDuels();
+    }
+    setDuelLoading(false);
+    return res;
+  }, [loadDuels]);
+
+  const handleCheckDuelResult = useCallback(async (duelId: string) => {
+    const res = await duelResolve({ duelId });
+    void loadDuels();
+    return res;
+  }, [loadDuels]);
+
+  const startChallengePlay = (shapeOverride?: string) => {
+    const shape = shapeOverride || challengeShape;
     setPlayMode("challenge");
+    setMemoryPeeksUsed(0);
+    setGhostPoints([]);
     resetRound();
     setMissionStartedAtMs(Date.now());
     setScreen("play");
-    setStatusText(`${t("challengeDraw")} ${tShape(challengeShape)}`);
+    setStatusText(`${t("challengeDraw")} ${tShape(shape)}`);
+  };
+
+  const startDailyShape = () => {
+    setChallengeShape(progression.dailyShape.shape);
+    startChallengePlay(progression.dailyShape.shape);
   };
 
   const handleChallengeServerSubmit = async () => {
@@ -466,11 +566,16 @@ export default function App() {
       minDistance: 1.5,
       minPoints: 10
     });
+
+    /* Ghost + daily bookkeeping, local-first so they work offline too. */
+    setGhostPoints(getChallengeBestStroke(progression, challengeShape)?.points || []);
+
     const res = await challengeSubmit({
       userId: "local-user",
       displayName: "Player",
       shape: challengeShape,
-      points: processed.map(p => ({ x: p.x, y: p.y }))
+      points: processed.map(p => ({ x: p.x, y: p.y })),
+      canvasMinDim
     });
     if (res.accepted) {
       const acc = res.accuracyPercent ?? 0;
@@ -484,12 +589,18 @@ export default function App() {
         stars,
         xpGained: xp
       });
+      await recordChallengeOutcomes(challengeShape, processed, acc, stars);
       setScreen("complete");
       setStatusText(`${t("challengeAccepted")} ${t("accuracy")} ${acc.toFixed(1)}% | ${t("stars")} ${stars} | ${t("xp")} ${xp}`);
       void loadChallenge(challengeShape);
     } else {
       // Server unavailable â€” score locally
-      const score = scoreRound(processed, challengeShape, "medium", 0, { scoringVersion });
+      const scoreOptions = {
+        scoringVersion,
+        mechanicTag: "none" as const,
+        canvasMinDim
+      };
+      const score = scoreRound(processed, challengeShape, "medium", 0, scoreOptions);
       const acc = score.accuracyPercent;
       const stars = score.stars as 0 | 1 | 2 | 3;
       const xp = score.xpGained;
@@ -501,18 +612,48 @@ export default function App() {
         stars,
         xpGained: xp
       });
+      await recordChallengeOutcomes(challengeShape, processed, acc, stars);
       setScreen("complete");
       setStatusText(`${t("challengeScoredLocally")} | ${t("accuracy")} ${acc.toFixed(1)}% | ${t("stars")} ${stars} | ${t("xp")} ${xp}`);
     }
     setChallengeLoading(false);
   };
 
+  const recordChallengeOutcomes = async (shape: string, points: Point[], acc: number, stars: number) => {
+    if (points.length < 3) {
+      return;
+    }
+    const daily = applyDailyShapeResult(progression, {
+      accuracyPercent: acc,
+      shape
+    });
+    const bestResult = updateChallengeBest(daily.next, { shape, points, accuracyPercent: acc });
+    let next = bestResult.next;
+    await saveProgression(next);
+    setProgression(next);
+    if (daily.applied) {
+      playClaimRewardPop();
+      setStatusText(
+        `${t("dailyShapeDone")} +${DAILY_SHAPE_REWARD_COINS} ${t("coinsLabel")} | ${t("dailyStreakLabel")} ${next.dailyShape.streak}`
+      );
+    }
+  };
+
   useEffect(() => {
     if (homePanel === "challenge") {
       void loadChallenge(challengeShape);
     }
+    if (homePanel === "leaderboard") {
+      void loadLeaderboard(leaderboardShapeFilter || undefined);
+    }
+    if (homePanel === "weekly") {
+      void loadWeeklyLadder();
+    }
+    if (homePanel === "duel") {
+      void loadDuels();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homePanel, challengeShape]);
+  }, [homePanel, challengeShape, leaderboardShapeFilter]);
 
   const handleSelectPremiumCosmetic = async (itemId: string) => {
     const next = selectPremiumCosmeticItem(progression, itemId);
@@ -525,7 +666,7 @@ export default function App() {
   };
 
   const advanceTutorial = async () => {
-    if (tutorialStep < TUTORIAL_STEPS.length - 1) {
+    if (tutorialStep < TUTORIAL_STEPS_I18N.en.length - 1) {
       setTutorialStep((step) => step + 1);
       return;
     }
@@ -593,13 +734,10 @@ export default function App() {
     markClaimPending(key, false);
   };
 
-  const applyClaimRewardFeedback = (rewardCoins: number, rewardGems: number) => {
+  const applyClaimRewardFeedback = (rewardCoins: number) => {
     const rewardSegments = [];
     if (rewardCoins > 0) {
       rewardSegments.push(`+${rewardCoins} ${t("coinsLabel")}`);
-    }
-    if (rewardGems > 0) {
-      rewardSegments.push(`+${rewardGems} ${t("gems").toLowerCase()}`);
     }
     const summary = rewardSegments.length > 0 ? rewardSegments.join(" | ") : t("noReward");
     setLastClaimRewardText(`${t("claimedLabel")} ${summary}`);
@@ -622,7 +760,7 @@ export default function App() {
       if (!normalized.accepted) {
         if (normalized.reason === "already_claimed") {
           if (!isQuestAlreadyClaimedLocally(progression, boardType, questId)) {
-            const synced = markQuestClaimed(progression, boardType, questId, 0, 0);
+            const synced = markQuestClaimed(progression, boardType, questId);
             await applyAndPersistProgression(synced, t("claimAlreadyProcessed"));
           } else {
             setStatusText(t("claimAlreadyProcessed"));
@@ -641,15 +779,13 @@ export default function App() {
           const fallbackNext = markQuestClaimed(
             progression,
             boardType,
-            questId,
-            localReward.rewardCoins,
-            localReward.rewardGems
+            questId
           );
           await applyAndPersistProgression(
             fallbackNext,
             `${t("claimedLabel")} +${localReward.rewardCoins} ${t("coinsLabel")}`
           );
-          applyClaimRewardFeedback(localReward.rewardCoins, localReward.rewardGems);
+          applyClaimRewardFeedback(localReward.rewardCoins);
           return;
         }
 
@@ -660,9 +796,7 @@ export default function App() {
       const next = markQuestClaimed(
         progression,
         boardType,
-        questId,
-        normalized.rewardCoins,
-        normalized.rewardGems
+        questId
       );
       const merged =
         typeof normalized.coinsBalance === "number"
@@ -672,7 +806,7 @@ export default function App() {
             }
           : next;
       await applyAndPersistProgression(merged, `${t("claimedLabel")} +${normalized.rewardCoins} ${t("coinsLabel")}`);
-      applyClaimRewardFeedback(normalized.rewardCoins, normalized.rewardGems);
+      applyClaimRewardFeedback(normalized.rewardCoins);
     } finally {
       endClaimOperation(claimKey);
     }
@@ -773,7 +907,12 @@ export default function App() {
     setFeedback(null);
     setAwardedForCurrentStroke(false);
     setCanvasResetKey((key) => key + 1);
-    setStatusText(t("canvasReset"));
+    if (screen === "play" && playMode === "level" && activeMechanic === "memory") {
+      setMemoryPeeksUsed((used) => used + 1);
+      setStatusText(t("canvasReset"));
+    } else {
+      setStatusText(t("canvasReset"));
+    }
   };
 
   const handleLevelSelect = (levelId: string) => {
@@ -828,6 +967,7 @@ export default function App() {
     await saveProgression(result.nextState);
     setProgression(result.nextState);
     setMissionStartedAtMs(Date.now());
+    setMemoryPeeksUsed(0);
     resetRound();
     setScreen("play");
     setStatusText(`${t("missionStarted")} (${source}) | ${t("energy")} ${result.remaining}/${result.nextState.energy.dailyCapBase * result.nextState.energy.dailyMultiplier}`);
@@ -869,6 +1009,7 @@ export default function App() {
     );
 
     resetRound();
+    setMemoryPeeksUsed(0);
     setMissionStartedAtMs(Date.now());
     setScreen("play");
     setStatusText(t("rewardUnlocked"));
@@ -880,9 +1021,16 @@ export default function App() {
       return;
     }
 
-    const accuracy = computeAccuracyPercentByVersion(round.points, round.targetShape, scoringVersion);
-    const score = scoreRound(round.points, round.targetShape, round.difficulty, 4, { scoringVersion });
     const missionDurationMs = round.endedAtMs - missionStartedAtMs;
+    const scoreOptions = {
+      scoringVersion,
+      mechanicTag: activeMechanic,
+      timeTakenMs: missionDurationMs,
+      timeLimitMs: round.timeLimitMs,
+      canvasMinDim
+    };
+    /* One pass: score + accuracy come from the same computation. */
+    const { score, accuracy } = scoreRoundDetailed(round.points, round.targetShape, round.difficulty, 4, scoreOptions);
     const pressured = applyMechanicPressure({
       stars: score.stars,
       xpGained: score.xpGained,
@@ -938,6 +1086,8 @@ export default function App() {
     });
     payload.levelId = selectedLevelId;
     (payload as Record<string, unknown>).displayName = "Player";
+    (payload as Record<string, unknown>).mechanicTag = activeMechanic;
+    (payload as Record<string, unknown>).canvasMinDim = canvasMinDim;
 
     const result = await submitRound(payload);
     if (!result.accepted) {
@@ -952,11 +1102,18 @@ export default function App() {
       return;
     }
 
-    const accuracy = computeAccuracyPercentByVersion(round.points, round.targetShape, scoringVersion);
-    const resolvedAccuracy = result.accuracyPercent || accuracy.accuracyPercent;
-    const resolvedStars = result.stars || 0;
-    const resolvedXp = result.xpGained || 0;
     const serverMissionDurationMs = round.endedAtMs - missionStartedAtMs;
+    const scoreOptions = {
+      scoringVersion,
+      mechanicTag: activeMechanic,
+      timeTakenMs: serverMissionDurationMs,
+      timeLimitMs: round.timeLimitMs,
+      canvasMinDim
+    };
+    const { score: localScore, accuracy } = scoreRoundDetailed(round.points, round.targetShape, round.difficulty, 4, scoreOptions);
+    const resolvedAccuracy = result.accuracyPercent || localScore.accuracyPercent;
+    const resolvedStars = (result.stars || localScore.stars) as 0 | 1 | 2 | 3;
+    const resolvedXp = result.xpGained || localScore.xpGained;
     const pressured = applyMechanicPressure({
       stars: resolvedStars,
       xpGained: resolvedXp,
@@ -986,50 +1143,35 @@ export default function App() {
   return (
     <TamaguiProvider config={tamaguiConfig} defaultTheme="precision_dark">
       <Theme name="precision_dark">
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: PRECISION_COLORS.bg }}>
+      <ScreenAmbience />
 
       {screen === "main" ? (
         <MainScreen
           homeAnimValues={homeAnimValues}
           homePanelAnim={homePanelAnim}
           ctaSheenAnim={ctaSheenAnim}
-          claimRewardPopAnim={claimRewardPopAnim}
           progression={progression}
-          homePanel={homePanel}
           selectedLevel={selectedLevel}
-          selectedLevelId={selectedLevelId}
-          selectedChapterId={selectedChapterId}
           totalBestStars={totalBestStars}
           energySnapshot={energySnapshot}
-          premiumCosmeticCount={premiumCosmeticCount}
-          dailyStats={dailyStats}
-          weeklyStats={weeklyStats}
-          claimableDaily={claimableDaily}
-          claimableWeekly={claimableWeekly}
-          masteryLevels={masteryLevels}
-          hasPremiumNoAds={hasPremiumNoAds}
-          lastClaimRewardText={lastClaimRewardText}
-          claimingRewardKeys={claimingRewardKeys}
           statusText={statusText}
           challengeShape={challengeShape}
           challengeEntries={challengeEntries}
           challengeLoading={challengeLoading}
           challengeResult={challengeResult}
-          brushInventory={brushInventory}
-          trailInventory={trailInventory}
-          frameInventory={frameInventory}
-          mechanicTag={getMechanicSummary(selectedLevelId).tag}
-          mechanicIsBoss={getMechanicSummary(selectedLevelId).isBoss}
-          setHomePanel={setHomePanel}
+          dailyShapeState={progression.dailyShape}
+          onStartDaily={startDailyShape}
           setScreen={setScreen}
+          setHomePanel={setHomePanel}
           handlePremiumPurchase={handlePremiumPurchase}
           handleBuyEnergyRefill={handleBuyEnergyRefill}
-          handleQuestClaim={handleQuestClaim}
-          handleDailyStreakChest={handleDailyStreakChest}
-          handleSelectPremiumCosmetic={handleSelectPremiumCosmetic}
           setChallengeShape={setChallengeShape}
-          loadChallenge={loadChallenge}
-          startChallengePlay={startChallengePlay}
+          startChallengePlay={() => startChallengePlay()}
+          leaderboardEntries={leaderboardEntries}
+          leaderboardShapeFilter={leaderboardShapeFilter}
+          setLeaderboardShapeFilter={setLeaderboardShapeFilter}
+          ladderEntries={ladderEntries}
           lang={lang}
           setLang={setLang}
         />
@@ -1064,6 +1206,8 @@ export default function App() {
           speedParTimeMs={speedParTimeMs}
           playClockMs={playClockMs}
           memoryTargetVisible={memoryTargetVisible}
+          memoryPeeksLeft={Math.max(0, MEMORY_PEEK_LIMIT - memoryPeeksUsed)}
+          onCanvasLayout={setCanvasMinDim}
           challengeShape={challengeShape}
           challengeLoading={challengeLoading}
           canScore={canScore}
@@ -1073,7 +1217,6 @@ export default function App() {
           targetPreviewPath={targetPreviewPath}
           cosmeticVisual={cosmeticVisual}
           setScreen={setScreen}
-          setHomePanel={setHomePanel}
           resetRound={resetRound}
           handleStrokeCommitted={handleStrokeCommitted}
           handleLocalScore={handleLocalScore}
@@ -1088,6 +1231,8 @@ export default function App() {
           round={round}
           drawnPoints={drawnPoints}
           challengeShape={challengeShape}
+          ghostPoints={ghostPoints}
+          flawless={Boolean(feedback && feedback.accuracyPercent >= 97)}
           canGoNextLevel={canGoNextLevel}
           nextLevelLabel={nextLevelLabel}
           hasPremiumNoAds={hasPremiumNoAds}
@@ -1098,11 +1243,10 @@ export default function App() {
           cosmeticVisual={cosmeticVisual}
           setScreen={setScreen}
           setPlayMode={setPlayMode}
-          setHomePanel={setHomePanel}
           handleRetryFromComplete={handleRetryFromComplete}
           handleNextFromComplete={handleNextFromComplete}
           handleRewardedRetry={handleRewardedRetry}
-          startChallengePlay={startChallengePlay}
+          startChallengePlay={() => startChallengePlay()}
           lang={lang}
         />
       )}

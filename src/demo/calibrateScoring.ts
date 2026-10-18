@@ -169,7 +169,7 @@ function evaluateCase(entry: CalibrationCase): CalibrationRow {
     minPoints: minimumRequiredPoints(entry.timeLimitMs)
   });
 
-  const accuracy = computeAccuracyPercentByVersion(processed, entry.targetShape, "v2");
+  const accuracy = computeAccuracyPercentByVersion(processed, entry.targetShape, { scoringVersion: "v2" });
   const score = scoreRound(processed, entry.targetShape, entry.difficulty, 0, { scoringVersion: "v2" });
 
   const [min, max] = expectedRange(entry.scenario);

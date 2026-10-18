@@ -8,6 +8,17 @@ export type Difficulty = "easy" | "medium" | "hard";
 
 export type ScoringVersion = "v1" | "v2";
 
+export type MechanicTag = "speed" | "stability" | "symmetry" | "memory" | "none" | string;
+
+export type ScoreOptions = {
+  scoringVersion?: ScoringVersion;
+  mechanicTag?: MechanicTag;
+  timeTakenMs?: number;
+  timeLimitMs?: number;
+  canvasMinDim?: number;
+};
+
+
 export type RoundInput = {
   targetShape: string;
   points: Point[];
@@ -15,6 +26,7 @@ export type RoundInput = {
   startedAtMs: number;
   endedAtMs: number;
   difficulty: Difficulty;
+  canvasMinDim?: number;
 };
 
 export type AccuracyResult = {

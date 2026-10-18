@@ -8,6 +8,7 @@ import {
   LEVEL_PACK_V1,
   MechanicTag
 } from "./levels";
+import { Point } from "../../src/core/types";
 
 export { DEFAULT_LEVEL_ID };
 
@@ -88,6 +89,25 @@ export type EnergyState = {
   dailyMultiplier: number;
   current: number;
   consumedToday: number;
+  lastRegenTime?: number;
+};
+
+export const CHALLENGE_SHAPE_POOL = [
+  "circle", "square", "triangle", "diamond", "pentagon", "hexagon", "heart", "star"
+] as const;
+
+export type DailyShapeState = {
+  key: string;
+  shape: string;
+  playedToday: boolean;
+  lastPlayedKey: string | null;
+  bestAccuracy: number;
+  streak: number;
+};
+
+export type ChallengeBestStroke = {
+  accuracyPercent: number;
+  points: Point[];
 };
 
 export type PremiumState = {
@@ -108,7 +128,6 @@ export type ProgressionState = {
   cumulativeXp: number;
   completedRounds: number;
   coins: number;
-  gems: number;
   bestStarsByLevel: Record<string, 0 | 1 | 2 | 3>;
   unlockedLevels: string[];
   masteryXpByTrack: Record<MasteryTrack, number>;
@@ -121,6 +140,8 @@ export type ProgressionState = {
   personalBestByLevel: Record<string, PersonalBest>;
   energy: EnergyState;
   premium: PremiumState;
+  dailyShape: DailyShapeState;
+  challengeBestByShape: Record<string, ChallengeBestStroke>;
 };
 
 function dayKey(now: Date = new Date()): string {
@@ -146,8 +167,9 @@ function monthKey(now: Date = new Date()): string {
 
 const FREE_DAILY_CAP = 10;
 const PREMIUM_DAILY_MULTIPLIER = 3;
-export const ENERGY_REFILL_COIN_COST = 120;
-export const ENERGY_REFILL_AMOUNT = 3;
+export const ENERGY_REFILL_COIN_COST = 3;
+export const ENERGY_REFILL_AMOUNT = 1;
+export const ENERGY_REGEN_INTERVAL_MS = 30 * 60 * 1000;
 const PREMIUM_COSMETIC_SET_ID = "premium-founder-set-v1";
 const PREMIUM_COSMETIC_ITEMS = [
   "premium-brush-aurora",
@@ -197,7 +219,8 @@ function buildEnergyState(now: Date = new Date(), dailyMultiplier: number = 1): 
     dailyCapBase: FREE_DAILY_CAP,
     dailyMultiplier: safeMultiplier,
     current: cap,
-    consumedToday: 0
+    consumedToday: 0,
+    lastRegenTime: now.getTime()
   };
 }
 
@@ -326,11 +349,29 @@ function buildSeasonPass(startKey: string): SeasonPassState {
   };
 }
 
+function buildDailyShapeState(key: string = dayKey()): DailyShapeState {
+  const pool: readonly string[] = CHALLENGE_SHAPE_POOL;
+  const shape = pool[hashString(`daily-shape:${key}`) % pool.length];
+  return {
+    key,
+    shape,
+    playedToday: false,
+    lastPlayedKey: null,
+    bestAccuracy: 0,
+    streak: 0
+  };
+}
+
+export const DAILY_SHAPE_REWARD_COINS = 15;
+
+export function getDailyShapeToday(nowKey: string = dayKey()): string {
+  return buildDailyShapeState(nowKey).shape;
+}
+
 export const DEFAULT_PROGRESSION: ProgressionState = {
   cumulativeXp: 0,
   completedRounds: 0,
   coins: 0,
-  gems: 0,
   bestStarsByLevel: {},
   unlockedLevels: [DEFAULT_LEVEL_ID],
   masteryXpByTrack: {
@@ -354,8 +395,67 @@ export const DEFAULT_PROGRESSION: ProgressionState = {
   },
   personalBestByLevel: {},
   energy: buildEnergyState(),
-  premium: buildPremiumState()
+  premium: buildPremiumState(),
+  dailyShape: buildDailyShapeState(),
+  challengeBestByShape: {}
 };
+
+function sanitizeDailyShape(value: unknown): DailyShapeState {
+  const fallback = buildDailyShapeState();
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+  const raw = value as Partial<DailyShapeState>;
+  const key = typeof raw.key === "string" && raw.key.length === 10 ? raw.key : fallback.key;
+  const pool: readonly string[] = CHALLENGE_SHAPE_POOL;
+  const shape = pool.includes(raw.shape || "") ? (raw.shape as string) : fallback.shape;
+  return {
+    key,
+    shape,
+    playedToday: Boolean(raw.playedToday) && key === dayKey(),
+    lastPlayedKey: typeof raw.lastPlayedKey === "string" ? raw.lastPlayedKey : null,
+    bestAccuracy: typeof raw.bestAccuracy === "number" ? Math.max(0, Math.min(100, raw.bestAccuracy)) : 0,
+    streak: typeof raw.streak === "number" ? Math.max(0, Math.floor(raw.streak)) : 0
+  };
+}
+
+function sanitizePointList(points: unknown): Point[] {
+  if (!Array.isArray(points) || points.length < 2) {
+    return [];
+  }
+  const out: Point[] = [];
+  for (const p of points) {
+    if (typeof p === "object" && p !== null) {
+      const candidate = p as Partial<Point>;
+      if (typeof candidate.x === "number" && typeof candidate.y === "number") {
+        out.push({ x: candidate.x, y: candidate.y });
+      }
+    }
+    if (out.length >= 600) {
+      break;
+    }
+  }
+  return out.length >= 2 ? out : [];
+}
+
+function sanitizeChallengeBest(value: unknown): Record<string, ChallengeBestStroke> {
+  const out: Record<string, ChallengeBestStroke> = {};
+  if (!value || typeof value !== "object") {
+    return out;
+  }
+  for (const [shape, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof shape !== "string" || shape.length === 0) {
+      continue;
+    }
+    const best = entry as { accuracyPercent?: unknown; points?: unknown };
+    const accuracy = typeof best.accuracyPercent === "number" ? best.accuracyPercent : 0;
+    const points = sanitizePointList(best.points);
+    if (points.length >= 2 && accuracy > 0) {
+      out[shape] = { accuracyPercent: accuracy, points };
+    }
+  }
+  return out;
+}
 
 function isValidStars(value: unknown): value is 0 | 1 | 2 | 3 {
   return value === 0 || value === 1 || value === 2 || value === 3;
@@ -379,21 +479,29 @@ function ensureDayWeekResets(state: ProgressionState): ProgressionState {
   const cap = FREE_DAILY_CAP * multiplier;
 
   const previousEnergy = state.energy || buildEnergyState(new Date(), multiplier);
-  const energy: EnergyState =
-    previousEnergy.dailyKey === today
-      ? {
-          ...previousEnergy,
-          dailyCapBase: FREE_DAILY_CAP,
-          dailyMultiplier: multiplier,
-          current: Math.min(cap, Math.max(0, previousEnergy.current))
-        }
-      : {
-          dailyKey: today,
-          dailyCapBase: FREE_DAILY_CAP,
-          dailyMultiplier: multiplier,
-          current: cap,
-          consumedToday: 0
-        };
+  let currentEnergy = previousEnergy.current;
+  let lastRegenTime = previousEnergy.lastRegenTime || Date.now();
+
+  if (currentEnergy < cap) {
+    const timePassed = Date.now() - lastRegenTime;
+    const intervalsPassed = Math.floor(timePassed / ENERGY_REGEN_INTERVAL_MS);
+    if (intervalsPassed > 0) {
+      currentEnergy = Math.min(cap, currentEnergy + intervalsPassed);
+      lastRegenTime += intervalsPassed * ENERGY_REGEN_INTERVAL_MS;
+    }
+  } else {
+    lastRegenTime = Date.now();
+  }
+
+  const energy: EnergyState = {
+    ...previousEnergy,
+    dailyKey: today,
+    dailyCapBase: FREE_DAILY_CAP,
+    dailyMultiplier: multiplier,
+    current: currentEnergy,
+    consumedToday: previousEnergy.dailyKey === today ? previousEnergy.consumedToday : 0,
+    lastRegenTime
+  };
 
   const premiumBase = state.premium || buildPremiumState();
   let premium = premiumBase;
@@ -410,6 +518,7 @@ function ensureDayWeekResets(state: ProgressionState): ProgressionState {
   return {
     ...state,
     dailyBoard: state.dailyBoard.key === today ? state.dailyBoard : buildDailyBoard(today),
+    dailyShape: state.dailyShape && state.dailyShape.key === today ? state.dailyShape : buildDailyShapeState(today),
     weeklyLadder: state.weeklyLadder.key === week ? state.weeklyLadder : buildWeeklyLadder(week),
     weeklyEvent: state.weeklyEvent.startKey === week ? state.weeklyEvent : buildWeeklyEvent(week),
     energy,
@@ -442,7 +551,6 @@ function sanitizeProgression(value: unknown): ProgressionState {
     cumulativeXp: typeof raw.cumulativeXp === "number" ? Math.max(0, raw.cumulativeXp) : 0,
     completedRounds: typeof raw.completedRounds === "number" ? Math.max(0, raw.completedRounds) : 0,
     coins: typeof raw.coins === "number" ? Math.max(0, raw.coins) : 0,
-    gems: typeof raw.gems === "number" ? Math.max(0, raw.gems) : 0,
     bestStarsByLevel,
     unlockedLevels: Array.from(new Set([DEFAULT_LEVEL_ID, ...unlockedLevels])),
     masteryXpByTrack: {
@@ -496,6 +604,8 @@ function sanitizeProgression(value: unknown): ProgressionState {
       unlockedFrames: Array.isArray(raw.collectionAlbum?.unlockedFrames) ? raw.collectionAlbum.unlockedFrames : []
     },
     personalBestByLevel: raw.personalBestByLevel || {},
+    dailyShape: sanitizeDailyShape(raw.dailyShape),
+    challengeBestByShape: sanitizeChallengeBest(raw.challengeBestByShape),
     energy:
       raw.energy && typeof raw.energy.dailyKey === "string"
         ? {
@@ -504,7 +614,8 @@ function sanitizeProgression(value: unknown): ProgressionState {
             dailyMultiplier: typeof raw.energy.dailyMultiplier === "number" ? Math.max(1, Math.floor(raw.energy.dailyMultiplier)) : 1,
             current: typeof raw.energy.current === "number" ? Math.max(0, Math.floor(raw.energy.current)) : FREE_DAILY_CAP,
             consumedToday:
-              typeof raw.energy.consumedToday === "number" ? Math.max(0, Math.floor(raw.energy.consumedToday)) : 0
+              typeof raw.energy.consumedToday === "number" ? Math.max(0, Math.floor(raw.energy.consumedToday)) : 0,
+            lastRegenTime: typeof raw.energy.lastRegenTime === "number" ? raw.energy.lastRegenTime : Date.now()
           }
         : buildEnergyState(),
     premium:
@@ -755,7 +866,7 @@ export function applyRoundProgress(
   const normalized = ensureDayWeekResets(current);
   const level = getLevelById(args.levelId);
   const effectiveXp = Math.max(0, Math.round(args.xpGained * level.rewardMultiplier));
-  const bossCoinBonus = level.isBoss ? 35 : 0;
+  const earnedCoins = args.stars === 3 ? 1 : 0;
 
   const previousBest = normalized.bestStarsByLevel[args.levelId] ?? 0;
   const nextBest = args.stars > previousBest ? args.stars : previousBest;
@@ -837,7 +948,7 @@ export function applyRoundProgress(
     ...normalized,
     cumulativeXp: normalized.cumulativeXp + effectiveXp,
     completedRounds: normalized.completedRounds + 1,
-    coins: normalized.coins + bossCoinBonus,
+    coins: normalized.coins + earnedCoins,
     bestStarsByLevel,
     unlockedLevels,
     masteryXpByTrack,
@@ -855,15 +966,11 @@ export function applyRoundProgress(
 export function markQuestClaimed(
   state: ProgressionState,
   boardType: "daily" | "weekly",
-  questId: string,
-  rewardCoins: number,
-  rewardGems: number = 0
+  questId: string
 ): ProgressionState {
   if (boardType === "daily") {
     return {
       ...state,
-      coins: state.coins + rewardCoins,
-      gems: state.gems + rewardGems,
       dailyBoard: {
         ...state.dailyBoard,
         quests: state.dailyBoard.quests.map((quest) =>
@@ -883,8 +990,6 @@ export function markQuestClaimed(
 
   return {
     ...state,
-    coins: state.coins + rewardCoins,
-    gems: state.gems + rewardGems,
     weeklyLadder: {
       ...state.weeklyLadder,
       tiers: updatedTiers,
@@ -896,7 +1001,6 @@ export function markQuestClaimed(
 export function markSeasonTierClaimed(
   state: ProgressionState,
   tier: number,
-  rewardCoins: number,
   premiumTrack: boolean
 ): ProgressionState {
   const target = premiumTrack ? state.seasonPass.claimedPremiumTiers : state.seasonPass.claimedFreeTiers;
@@ -906,7 +1010,6 @@ export function markSeasonTierClaimed(
 
   return {
     ...state,
-    coins: state.coins + rewardCoins,
     seasonPass: {
       ...state.seasonPass,
       claimedFreeTiers: premiumTrack ? state.seasonPass.claimedFreeTiers : [...state.seasonPass.claimedFreeTiers, tier],
@@ -927,8 +1030,6 @@ export function claimDailyStreakChest(state: ProgressionState): ProgressionState
 
   return {
     ...state,
-    coins: state.coins + 90,
-    gems: state.gems + (streakDays % 3 === 0 ? 1 : 0),
     dailyBoard: {
       ...state.dailyBoard,
       streakDays,
@@ -940,6 +1041,69 @@ export function claimDailyStreakChest(state: ProgressionState): ProgressionState
 
 export function getTotalBestStars(state: ProgressionState): number {
   return Object.values(state.bestStarsByLevel).reduce<number>((sum, stars) => sum + stars, 0);
+}
+
+export function applyDailyShapeResult(
+  state: ProgressionState,
+  args: { accuracyPercent: number; shape: string }
+): { next: ProgressionState; applied: boolean; coinsAwarded: number; streak: number } {
+  const normalized = ensureDayWeekResets(state);
+  const today = dayKey();
+  const dailyShape = normalized.dailyShape;
+
+  if (dailyShape.playedToday && dailyShape.lastPlayedKey === today) {
+    const onlyBest = {
+      ...normalized,
+      dailyShape: {
+        ...dailyShape,
+        bestAccuracy: Math.max(dailyShape.bestAccuracy, args.accuracyPercent)
+      }
+    };
+    return { next: onlyBest, applied: false, coinsAwarded: 0, streak: onlyBest.dailyShape.streak };
+  }
+
+  const yesterday = addDays(today, -1);
+  const streak = dailyShape.lastPlayedKey === yesterday ? dailyShape.streak + 1 : 1;
+  const next: ProgressionState = {
+    ...normalized,
+    coins: normalized.coins + DAILY_SHAPE_REWARD_COINS,
+    dailyShape: {
+      ...dailyShape,
+      playedToday: true,
+      lastPlayedKey: today,
+      bestAccuracy: Math.max(dailyShape.bestAccuracy, args.accuracyPercent),
+      streak
+    }
+  };
+  return { next, applied: true, coinsAwarded: DAILY_SHAPE_REWARD_COINS, streak };
+}
+
+export function updateChallengeBest(
+  state: ProgressionState,
+  args: { shape: string; points: Point[]; accuracyPercent: number }
+): { next: ProgressionState; stored: boolean } {
+  if (args.points.length < 2 || args.accuracyPercent <= 0) {
+    return { next: state, stored: false };
+  }
+  const existing = state.challengeBestByShape[args.shape];
+  if (existing && existing.accuracyPercent >= args.accuracyPercent) {
+    return { next: state, stored: false };
+  }
+  const points = args.points.slice(0, 600);
+  return {
+    next: {
+      ...state,
+      challengeBestByShape: {
+        ...state.challengeBestByShape,
+        [args.shape]: { accuracyPercent: args.accuracyPercent, points }
+      }
+    },
+    stored: true
+  };
+}
+
+export function getChallengeBestStroke(state: ProgressionState, shape: string): ChallengeBestStroke | null {
+  return state.challengeBestByShape[shape] || null;
 }
 
 function masteryLevelFromXp(xp: number): number {

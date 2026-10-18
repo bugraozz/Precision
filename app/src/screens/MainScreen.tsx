@@ -1,876 +1,703 @@
 import React from "react";
-import { Animated } from "react-native";
+import { Animated, Pressable } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Path } from "react-native-svg";
 import { ScrollView, Text, View } from "tamagui";
-import Pressable from "../components/TamaguiPressable";
-import LevelSelector from "../components/LevelSelector";
-import { PRECISION_COLORS, PRECISION_GRADIENTS } from "../theme/precisionTokens";
-import { styles } from "../styles";
-import { PREMIUM_COSMETIC_CATALOG } from "../cosmetics";
 import {
-  TARGET_PREVIEW_SIZE,
-  STABILITY_WOBBLE_WARN,
-  STABILITY_WOBBLE_HEAVY,
-  SYMMETRY_WARN_ACCURACY,
-  SYMMETRY_HEAVY_ACCURACY
-} from "../constants/gameplay";
-import type { HomePanelKey, RoundFeedback } from "../types/app";
+  Reveal, SectionLabel, GlassCard, StatBar, MetaCell,
+  PrimaryCta, Chip, StatusPill, ShapeMark, SHAPE_KEYS
+} from "../components/ui";
+import type { ShapeKey } from "../components/ui";
+import { PRECISION_COLORS, PRECISION_GRADIENTS, PRECISION_RADIUS } from "../theme/precisionTokens";
+import { ENERGY_REGEN_INTERVAL_MS, ENERGY_REFILL_COIN_COST } from "../progression";
 import type { ProgressionState } from "../progression";
-import type { ChallengeEntry } from "../api";
+import type { DailyShapeState } from "../progression";
+import type { ChallengeEntry, LeaderboardEntry, WeeklyLadderEntry } from "../api";
 import type { LevelConfig } from "../levels";
-import { LEVEL_PACK_V1 } from "../levels";
-import { ENERGY_REFILL_COIN_COST } from "../progression";
-import { t, tShape, tDifficulty, tMode, tFocusHint, tMechanic, tMechanicDesc, tRarity, tQuest } from "../i18n";
+import { LEVEL_PACK_V1, getChapterById } from "../levels";
+import { t, tShape, tDifficulty, tMode, tFocusHint, tChapterTitle } from "../i18n";
 import type { Lang } from "../i18n";
+import type { HomePanelKey } from "../types/app";
 
 export type MainScreenProps = {
-  // Animated values
   homeAnimValues: Animated.Value[];
   homePanelAnim: Animated.Value;
   ctaSheenAnim: Animated.Value;
-  claimRewardPopAnim: Animated.Value;
-  // State
   progression: ProgressionState;
-  homePanel: HomePanelKey;
   selectedLevel: LevelConfig;
-  selectedLevelId: string;
-  selectedChapterId: string;
   totalBestStars: number;
   energySnapshot: { current: number; cap: number; isPremium: boolean };
-  premiumCosmeticCount: number;
-  dailyStats: { done: number; total: number };
-  weeklyStats: { done: number; total: number };
-  claimableDaily: unknown[];
-  claimableWeekly: unknown[];
-  masteryLevels: { circle: number; corner: number; curve: number };
-  hasPremiumNoAds: boolean;
-  lastClaimRewardText: string | null;
-  claimingRewardKeys: Record<string, boolean>;
   statusText: string;
-  // Challenge
   challengeShape: string;
   challengeEntries: ChallengeEntry[];
   challengeLoading: boolean;
   challengeResult: { accuracyPercent: number; stars: number; xpGained: number } | null;
-  // Cosmetics
-  brushInventory: Array<{ id: string; name: string; rarity: string; visual: { strokeColor?: string; trailColor?: string; frameColor?: string } }>;
-  trailInventory: Array<{ id: string; name: string; rarity: string; visual: { strokeColor?: string; trailColor?: string; frameColor?: string } }>;
-  frameInventory: Array<{ id: string; name: string; rarity: string; visual: { strokeColor?: string; trailColor?: string; frameColor?: string } }>;
-  // Mechanic info
-  mechanicTag: string;
-  mechanicIsBoss: boolean;
-  // Handlers
-  setHomePanel: (panel: HomePanelKey) => void;
+  dailyShapeState: DailyShapeState;
+  onStartDaily: () => void;
   setScreen: (screen: "main" | "home" | "play" | "complete") => void;
+  setHomePanel: (panel: HomePanelKey) => void;
   handlePremiumPurchase: () => void;
   handleBuyEnergyRefill: () => void;
-  handleQuestClaim: (boardType: "daily" | "weekly", questId: string) => void;
-  handleDailyStreakChest: () => void;
-  handleSelectPremiumCosmetic: (itemId: string) => void;
   setChallengeShape: (shape: string) => void;
-  loadChallenge: (shape: string) => void;
   startChallengePlay: () => void;
+  leaderboardEntries: LeaderboardEntry[];
+  leaderboardShapeFilter: string;
+  setLeaderboardShapeFilter: (shape: string) => void;
+  ladderEntries: WeeklyLadderEntry[];
   lang: Lang;
   setLang: (lang: Lang) => void;
 };
 
+const RANK_TONES = [
+  PRECISION_COLORS.amberStrong,
+  PRECISION_COLORS.cyanStrong,
+  PRECISION_COLORS.bronze
+] as const;
+
+/* ── Hairline ranking list row ── */
+function RankRow({
+  index,
+  name,
+  value,
+  badge,
+  isSelf,
+  showDivider
+}: {
+  index: number;
+  name: string;
+  value: string;
+  badge: string;
+  isSelf: boolean;
+  showDivider: boolean;
+}) {
+  const top = index < 3;
+  const tone = top ? RANK_TONES[index] : PRECISION_COLORS.textSubtle;
+
+  return (
+    <View
+      flexDirection="row"
+      ai="center"
+      py={12}
+      pl={4}
+      pr={4}
+      h={12}
+      borderBottomWidth={1}
+      borderBottomColor={showDivider ? PRECISION_COLORS.borderMuted : "transparent"}
+    >
+      {top ? (
+        <View
+          w={26} h={26} br={13}
+          ai="center" jc="center"
+          bg="rgba(255,255,255,0.05)"
+        >
+          <Text color={tone} fos={11} fow="900">{`0${index + 1}`}</Text>
+        </View>
+      ) : (
+        <View w={26} ai="center" jc="center">
+          <Text color={PRECISION_COLORS.textSubtle} fos={11} fow="800">{index + 1}</Text>
+        </View>
+      )}
+      <Text
+        color={isSelf ? PRECISION_COLORS.primaryStrong : PRECISION_COLORS.textDim}
+        fos={13}
+        fow={isSelf ? "800" : "600"}
+        f={1}
+        numberOfLines={1}
+        ml={12}
+      >
+        {name}
+        {isSelf ? <Text color={PRECISION_COLORS.goldStrong} fos={10} fow="800"> · {t("you")}</Text> : null}
+      </Text>
+      <Text color={PRECISION_COLORS.textSubtle} fos={11} fow="700" ta="right" w={44}>
+        {badge}
+      </Text>
+      <Text color={PRECISION_COLORS.textStrong} fos={13} fow="800" ta="right" w={68} ml={12}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function Rankings({
+  heading,
+  loading,
+  emptyTitle,
+  rows
+}: {
+  heading: string;
+  loading: boolean;
+  emptyTitle: string;
+  rows: Array<{ key: string; name: string; value: string; badge: string; self: boolean }>;
+}) {
+  return (
+    <View>
+      <SectionLabel>{heading}</SectionLabel>
+      {loading ? (
+        <View py={20} ai="center">
+          <Text color={PRECISION_COLORS.textSubtle} fos={12} fow="600">{t("loading")}</Text>
+        </View>
+      ) : rows.length === 0 ? (
+        <View py={24} ai="center">
+          <View w={5} h={5} br={3} bg={PRECISION_COLORS.borderGold} mb={12} />
+          <Text color={PRECISION_COLORS.textDim} fos={13} fow="700">{emptyTitle}</Text>
+          <Text color={PRECISION_COLORS.textSubtle} fos={11} fow="600" mt={4} ls={0.3}>
+            {t("beFirstToSubmit")}
+          </Text>
+        </View>
+      ) : (
+        rows.map((row, i) => (
+          <RankRow
+            key={row.key}
+            index={i}
+            name={row.name}
+            value={row.value}
+            badge={row.badge}
+            isSelf={row.self}
+            showDivider={i < rows.length - 1}
+          />
+        ))
+      )}
+    </View>
+  );
+}
+
 export default function MainScreen(props: MainScreenProps) {
+  const [nowTime, setNowTime] = React.useState(Date.now());
+  const [activeTab, setActiveTab] = React.useState<HomePanelKey>("challenge");
+
+  React.useEffect(() => {
+    const interval = setInterval(() => setNowTime(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const {
-    homeAnimValues, homePanelAnim, ctaSheenAnim, claimRewardPopAnim,
-    progression, homePanel, selectedLevel, selectedLevelId,
-    totalBestStars, energySnapshot, premiumCosmeticCount,
-    dailyStats, weeklyStats, claimableDaily, claimableWeekly,
-    masteryLevels, hasPremiumNoAds, lastClaimRewardText,
-    claimingRewardKeys,
+    homeAnimValues, homePanelAnim,
+    progression, selectedLevel,
+    totalBestStars, energySnapshot, statusText,
     challengeShape, challengeEntries, challengeLoading, challengeResult,
-    brushInventory, trailInventory, frameInventory,
-    mechanicTag, mechanicIsBoss,
-    setHomePanel, setScreen, handlePremiumPurchase, handleBuyEnergyRefill,
-    handleQuestClaim, handleDailyStreakChest, handleSelectPremiumCosmetic,
-    setChallengeShape, loadChallenge, startChallengePlay,
+    dailyShapeState, onStartDaily,
+    setScreen, setHomePanel, handlePremiumPurchase, handleBuyEnergyRefill,
+    setChallengeShape, startChallengePlay,
+    leaderboardEntries, leaderboardShapeFilter, setLeaderboardShapeFilter,
+    ladderEntries,
     lang, setLang
   } = props;
 
+  const tabs: Array<{ key: HomePanelKey; label: string }> = [
+    { key: "challenge", label: t("challenge") },
+    { key: "leaderboard", label: t("leaderboard") },
+    { key: "weekly", label: t("weeklyLadderGlobal") }
+  ];
+
+  const selectTab = (key: HomePanelKey) => {
+    setActiveTab(key);
+    setHomePanel(key);
+  };
+
+  const regenRemainMs = Math.max(
+    0,
+    ENERGY_REGEN_INTERVAL_MS - (nowTime - (progression.energy.lastRegenTime ?? 0))
+  );
+  const regenClock = `${String(Math.floor(regenRemainMs / 60000)).padStart(2, "0")}:${String(Math.floor((regenRemainMs % 60000) / 1000)).padStart(2, "0")}`;
+  const progressPct = Math.round((progression.unlockedLevels.length / LEVEL_PACK_V1.length) * 100);
+
+  const metricMeta = [
+    { label: t("shape"), value: tShape(selectedLevel.targetShape) },
+    { label: t("difficulty"), value: tDifficulty(selectedLevel.difficulty) },
+    { label: t("time"), value: `${(selectedLevel.timeLimitMs / 1000).toFixed(0)}s` },
+    { label: t("mode"), value: tMode(selectedLevel.modeHint) }
+  ];
+
   return (
-    <ScrollView contentContainerStyle={styles.homeContent}>
-      <Animated.View
-        style={{
-          opacity: homeAnimValues[0],
-          transform: [
-            {
-              translateY: homeAnimValues[0].interpolate({
-                inputRange: [0, 1],
-                outputRange: [18, 0]
-              })
-            }
-          ]
-        }}
-      >
-        <View style={styles.titleBar} />
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+    <ScrollView
+      contentContainerStyle={{
+        paddingHorizontal: 20,
+        paddingTop: 56,
+        paddingBottom: 44,
+        alignSelf: "center",
+        width: "100%",
+        maxWidth: 980
+      }}
+    >
+      {/* ── Header ── */}
+      <Reveal anim={homeAnimValues[0]}>
+        <LinearGradient
+          colors={PRECISION_GRADIENTS.primary}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{ width: 48, height: 4, borderRadius: 4, marginBottom: 16, shadowColor: PRECISION_COLORS.primary, shadowRadius: 14, shadowOpacity: 0.45, shadowOffset: { width: 0, height: 4 } }}
+        />
+        <View flexDirection="row" jc="space-between" ai="flex-start" mb={28}>
           <View>
-            <Text style={styles.heroTitle}>{t("appTitle")}</Text>
-            <Text style={styles.heroSubtitle}>{t("appSubtitle")}</Text>
+            <Text fow="900" fos={40} lh={44} color={PRECISION_COLORS.textStrong} ls={-1.3}>
+              {t("appTitle")}
+            </Text>
+            <Text mt={6} color={PRECISION_COLORS.textMuted} fos={11} ls={3} textTransform="uppercase" fow="700">
+              {t("appSubtitle")}
+            </Text>
           </View>
           <Pressable
             onPress={() => setLang(lang === "en" ? "tr" : "en")}
-            style={({ pressed }) => [
-              styles.filterChip,
-              styles.filterChipActive,
-              pressed && styles.buttonPressedSoft,
-              { paddingHorizontal: 14, paddingVertical: 8 }
-            ]}
+            style={({ pressed }) => ({
+              height: 36,
+              justifyContent: "center",
+              paddingHorizontal: 14,
+              borderRadius: PRECISION_RADIUS.md,
+              borderWidth: 1,
+              borderColor: PRECISION_COLORS.border,
+              backgroundColor: pressed ? PRECISION_COLORS.surfaceStrong : PRECISION_COLORS.surface,
+              transform: [{ scale: pressed ? 0.96 : 1 }]
+            })}
           >
-            <Text style={[styles.filterChipText, styles.filterChipTextActive, { fontSize: 14, fontWeight: "700" }]}>
+            <Text color={PRECISION_COLORS.textDim} fos={12} fow="800" ls={1}>
               {lang === "en" ? "TR" : "EN"}
             </Text>
           </Pressable>
         </View>
-      </Animated.View>
+      </Reveal>
 
-      <Animated.View
-        style={{
-          opacity: homeAnimValues[1],
-          transform: [
+      {/* ── Vital stats ── */}
+      <Reveal anim={homeAnimValues[1]}>
+        <StatBar
+          style={{ marginBottom: 12 }}
+          items={[
             {
-              translateY: homeAnimValues[1].interpolate({
-                inputRange: [0, 1],
-                outputRange: [18, 0]
-              })
+              icon: "star",
+              color: PRECISION_COLORS.goldStrong,
+              soft: PRECISION_COLORS.goldSoft,
+              value: totalBestStars,
+              label: t("stars")
+            },
+            {
+              icon: "circle",
+              color: PRECISION_COLORS.emerald,
+              soft: PRECISION_COLORS.emeraldSoft,
+              value: progression.coins,
+              label: t("coins")
             }
-          ]
-        }}
-      >
-        <View style={styles.statsGrid}>
-          <View style={[styles.statCardWide, styles.statCardGold]}>
-            <View style={styles.statCardRow}>
-              <View style={styles.statIconWrap}>
-                <Text style={styles.statEmoji}>{'\u2B50'}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.statValue}>{totalBestStars}</Text>
-                <Text style={styles.statLabel}>{t("stars")}</Text>
-              </View>
-            </View>
-          </View>
-          <Animated.View
-            style={[
-              styles.statCardWide,
-              styles.statCardCyan,
-              {
-                transform: [
-                  {
-                    scale: claimRewardPopAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [1, 1.06]
-                    })
-                  }
-                ]
-              }
-            ]}
-          >
-            <View style={styles.statCardRow}>
-              <View style={[styles.statIconWrap, styles.statIconWrapCyan]}>
-                <Text style={styles.statEmoji}>{'\uD83E\uDE99'}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.statValue}>{progression.coins}</Text>
-                <Text style={styles.statLabel}>{t("coins")}</Text>
-              </View>
-            </View>
-            {lastClaimRewardText ? <Text style={styles.claimDeltaLabel}>{lastClaimRewardText}</Text> : null}
-          </Animated.View>
-        </View>
+          ]}
+        />
 
-        <View style={styles.resourceBar}>
-          <View style={styles.resourceItem}>
-            <Text style={styles.resourceIcon}>{'\u26A1'}</Text>
-            <Text style={styles.resourceValue}>{energySnapshot.current}/{energySnapshot.cap}</Text>
-            <Text style={styles.resourceLabel}>{t("energy")}{energySnapshot.isPremium ? ` ${t("premiumMultiplier")}` : ""}</Text>
-          </View>
-          <View style={styles.resourceDivider} />
-          <View style={styles.resourceItem}>
-            <Text style={styles.resourceIcon}>{'\uD83D\uDC8E'}</Text>
-            <Text style={styles.resourceValue}>{progression.gems}</Text>
-            <Text style={styles.resourceLabel}>{t("gems")}</Text>
-          </View>
-          <View style={styles.resourceDivider} />
-          <View style={styles.resourceItem}>
-            <Text style={styles.resourceIcon}>{'\uD83C\uDFAF'}</Text>
-            <Text style={styles.resourceValue}>{progression.completedRounds}</Text>
-            <Text style={styles.resourceLabel}>{t("rounds")}</Text>
-          </View>
-        </View>
-
-        <View style={styles.premiumBanner}>
-          <LinearGradient
-            colors={["rgba(251,191,36,0.12)", "rgba(251,191,36,0.04)", "rgba(251,191,36,0.08)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.premiumBannerGlow}
-          />
-          <View style={styles.premiumBannerHeader}>
-            <View style={styles.premiumIconWrap}>
-              <Text style={styles.premiumBannerIcon}>{'\uD83D\uDC51'}</Text>
+        {/* Energy · Rounds */}
+        <GlassCard style={{ marginBottom: 12, padding: 0 }}>
+          <View flexDirection="row" py={16} px={16}>
+            <View f={1}>
+              <Text color={PRECISION_COLORS.textMuted} fos={9} fow="800" ls={1.6} textTransform="uppercase" mb={6}>
+                {t("energy")}{energySnapshot.isPremium ? " ×3" : ""}
+              </Text>
+              <Text color={PRECISION_COLORS.textStrong} fos={17} fow="900">
+                {energySnapshot.current} <Text color={PRECISION_COLORS.textSubtle} fos={13} fow="700">/ {energySnapshot.cap}</Text>
+              </Text>
+              {energySnapshot.current < energySnapshot.cap ? (
+                <View flexDirection="row" ai="center" gap={6} mt={6}>
+                  <View w={4} h={4} br={2} bg={PRECISION_COLORS.cyanStrong} />
+                  <Text color={PRECISION_COLORS.cyanStrong} fos={11} fow="800" ls={0.5}>
+                    {regenClock}
+                  </Text>
+                </View>
+              ) : (
+                <View flexDirection="row" ai="center" gap={6} mt={6}>
+                  <View w={4} h={4} br={2} bg={PRECISION_COLORS.emerald} />
+                  <Text color={PRECISION_COLORS.emerald} fos={11} fow="800" ls={0.5}>FULL</Text>
+                </View>
+              )}
             </View>
-            <View style={{ flex: 1 }}>
-              <View style={styles.premiumTitleRow}>
-                <Text style={styles.premiumBannerTitle}>{progression.premium.isActive ? t("premiumActive") : t("premiumPack")}</Text>
-                {progression.premium.isActive ? (
-                  <View style={styles.premiumActiveBadge}>
-                    <Text style={styles.premiumActiveBadgeText}>{t("pro")}</Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text style={styles.premiumBannerSub}>{progression.premium.isActive ? t("premiumDescActive") : t("premiumDescInactive")}</Text>
+            <View w={1} bg={PRECISION_COLORS.borderMuted} my={2} mx={16} />
+            <View f={1}>
+              <Text color={PRECISION_COLORS.textMuted} fos={9} fow="800" ls={1.6} textTransform="uppercase" mb={6}>
+                {t("rounds")}
+              </Text>
+              <Text color={PRECISION_COLORS.textStrong} fos={17} fow="900">
+                {progression.completedRounds}
+              </Text>
             </View>
           </View>
-          {progression.premium.isActive ? (
-            <View style={styles.premiumStatsRow}>
-              <View style={styles.premiumStatChip}>
-                <Text style={styles.premiumStatChipIcon}>{'\uD83C\uDFA8'}</Text>
-                <Text style={styles.premiumStatChipText}>{premiumCosmeticCount} {t("cosmetics")}</Text>
+        </GlassCard>
+
+        {/* Premium — champagne VIP */}
+        <Pressable onPress={handlePremiumPurchase} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.985 : 1 }] })}>
+          <GlassCard accent="gold" style={{ marginBottom: 12 }}>
+            <View flexDirection="row" ai="center" gap={12}>
+              <View w={40} h={40} br={PRECISION_RADIUS.xl} ai="center" jc="center"
+                bg={PRECISION_COLORS.goldSoft} bw={1} borderColor={PRECISION_COLORS.borderGoldSoft}>
+                <ShapeMark shape="star" size={17} color={PRECISION_COLORS.goldStrong} strokeWidth={2} />
               </View>
-              <View style={styles.premiumStatChip}>
-                <Text style={styles.premiumStatChipIcon}>{'\uD83D\uDCE6'}</Text>
-                <Text style={styles.premiumStatChipText}>{progression.premium.monthlySpecialItemId ? t("monthlyItem") : t("pending")}</Text>
+              <View f={1}>
+                <View flexDirection="row" ai="center" gap={8}>
+                  <Text color={PRECISION_COLORS.goldStrong} fow="900" fos={14} ls={0.2} textTransform="uppercase">
+                    {progression.premium.isActive ? t("premiumActive") : t("premiumPack")}
+                  </Text>
+                  {progression.premium.isActive ? (
+                    <View bg={PRECISION_COLORS.goldStrong} br={PRECISION_RADIUS.pill} px={8} py={2}>
+                      <Text color={PRECISION_COLORS.bg} fow="900" fos={9} ls={1}>{t("pro")}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text color={PRECISION_COLORS.textMuted} fos={11} mt={3} fow="600">
+                  {progression.premium.isActive ? t("premiumDescActive") : t("premiumDescInactive")}
+                </Text>
               </View>
+              {!progression.premium.isActive ? (
+                <Text color={PRECISION_COLORS.goldStrong} fos={17} fow="900" pr={2}>›</Text>
+              ) : null}
             </View>
-          ) : null}
-        </View>
+          </GlassCard>
+        </Pressable>
 
-        <View style={styles.shopRow}>
-          <Pressable
-            onPress={() => {
-              void handleBuyEnergyRefill();
-            }}
-            style={({ pressed }) => [styles.shopButton, pressed && styles.buttonPressedPrimary]}
-          >
-            <Text style={styles.shopButtonIcon}>{'\u26A1'}</Text>
-            <Text style={styles.shopButtonText}>{t("energy")}</Text>
-            <Text style={styles.shopButtonPrice}>{ENERGY_REFILL_COIN_COST}</Text>
-          </Pressable>
-        </View>
+        {/* Energy refill */}
+        <Pressable
+          onPress={() => { void handleBuyEnergyRefill(); }}
+          style={({ pressed }) => ({
+            height: 48,
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: 16,
+            borderRadius: PRECISION_RADIUS.xxl,
+            borderWidth: 1,
+            borderColor: PRECISION_COLORS.border,
+            backgroundColor: pressed ? PRECISION_COLORS.surfaceStrong : PRECISION_COLORS.surface,
+            marginBottom: 20,
+            transform: [{ scale: pressed ? 0.98 : 1 }]
+          })}
+        >
+          <Text color={PRECISION_COLORS.emerald} fow="800" fos={13} f={1}>+1 {t("energy")}</Text>
+          <View flexDirection="row" ai="center" bg={PRECISION_COLORS.emeraldSoft} px={10} py={4} br={PRECISION_RADIUS.pill}>
+            <Text color={PRECISION_COLORS.emerald} fow="900" fos={12}>{ENERGY_REFILL_COIN_COST}</Text>
+            <Text fos={11} ml={4} color={PRECISION_COLORS.emerald}>◆</Text>
+          </View>
+        </Pressable>
 
-        <View style={styles.progressRow}>
-          <Text style={styles.progressLabel}>{t("overallProgress")}</Text>
-          <Text style={styles.progressValue}>{Math.round((progression.unlockedLevels.length / LEVEL_PACK_V1.length) * 100)}%</Text>
+        {/* Overall progress */}
+        <View flexDirection="row" ai="center" jc="space-between" mb={10} px={2}>
+          <Text color={PRECISION_COLORS.textMuted} fos={10} fow="800" ls={2} textTransform="uppercase">
+            {t("overallProgress")}
+          </Text>
+          <Text color={PRECISION_COLORS.goldStrong} fos={12} fow="900">{progressPct}%</Text>
         </View>
-        <View style={styles.progressBarTrack}>
+        <View h={6} br={999} bg={PRECISION_COLORS.whiteTrack} overflow="hidden" mb={28}>
           <LinearGradient
             colors={PRECISION_GRADIENTS.primary}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={[
-              styles.progressBarFill,
-              { width: `${Math.round((progression.unlockedLevels.length / LEVEL_PACK_V1.length) * 100)}%` }
-            ]}
+            style={{ height: 6, borderRadius: 999, width: `${progressPct}%` }}
           />
         </View>
-      </Animated.View>
+      </Reveal>
 
-      <Animated.View
-        style={{
-          opacity: homeAnimValues[2],
-          transform: [
-            {
-              translateY: homeAnimValues[2].interpolate({
-                inputRange: [0, 1],
-                outputRange: [18, 0]
-              })
-            }
-          ]
-        }}
-      >
-        <Text style={styles.sectionTitle}>{t("currentMission")}</Text>
-        <View style={styles.missionPreviewCard}>
-          <View style={styles.missionPreviewHeader}>
-            <View style={styles.missionPreviewIcon}>
-              <Text style={styles.missionPreviewIconText}>{tShape(selectedLevel.targetShape).slice(0, 1).toUpperCase()}</Text>
+      {/* ── Current mission ── */}
+      <Reveal anim={homeAnimValues[2]}>
+        <SectionLabel>{t("currentMission")}</SectionLabel>
+        <GlassCard accent="ice" style={{ marginBottom: 28 }}>
+          <View flexDirection="row" ai="center" gap={14} mb={16}>
+            <View w={48} h={48} br={PRECISION_RADIUS.xxl} ai="center" jc="center"
+              bg={PRECISION_COLORS.cyanTint} bw={1} borderColor="rgba(174,188,205,0.18)">
+              <ShapeMark shape={selectedLevel.targetShape} size={22} color={PRECISION_COLORS.cyanStrong} />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.missionPreviewTitle}>L{selectedLevel.index}: {tShape(selectedLevel.targetShape).toUpperCase()}</Text>
-              <Text style={styles.missionPreviewSub}>{tDifficulty(selectedLevel.difficulty).toUpperCase()} | {tFocusHint(selectedLevel.mechanicTag)}</Text>
-            </View>
-            <View style={styles.missionPreviewXp}>
-              <Text style={styles.missionPreviewXpValue}>{progression.cumulativeXp}</Text>
-              <Text style={styles.missionPreviewXpLabel}>{t("xp")}</Text>
-            </View>
-          </View>
-
-          <View style={styles.missionDivider} />
-
-          <View style={styles.missionInfoGrid}>
-            <View style={styles.missionInfoItem}>
-              <Text style={styles.missionInfoLabel}>{t("shape")}</Text>
-              <Text style={styles.missionInfoValue}>{tShape(selectedLevel.targetShape).toUpperCase()}</Text>
-            </View>
-            <View style={styles.missionInfoItem}>
-              <Text style={styles.missionInfoLabel}>{t("difficulty")}</Text>
-              <Text style={styles.missionInfoValue}>{tDifficulty(selectedLevel.difficulty).toUpperCase()}</Text>
-            </View>
-            <View style={styles.missionInfoItem}>
-              <Text style={styles.missionInfoLabel}>{t("time")}</Text>
-              <Text style={styles.missionInfoValue}>{(selectedLevel.timeLimitMs / 1000).toFixed(0)}s</Text>
-            </View>
-            <View style={styles.missionInfoItem}>
-              <Text style={styles.missionInfoLabel}>{t("mode")}</Text>
-              <Text style={styles.missionInfoValue}>{tMode(selectedLevel.modeHint).toUpperCase()}</Text>
-            </View>
-          </View>
-
-          <View style={styles.missionHintBar}>
-            <Text style={styles.missionHintIcon}>{"\u26A1"}</Text>
-            <Text style={styles.missionHint}>{tFocusHint(selectedLevel.mechanicTag)}</Text>
-          </View>
-        </View>
-      </Animated.View>
-
-      <Animated.View
-        style={{
-          opacity: homeAnimValues[3],
-          transform: [
-            {
-              translateY: homeAnimValues[3].interpolate({
-                inputRange: [0, 1],
-                outputRange: [18, 0]
-              })
-            }
-          ]
-        }}
-      >
-        <View style={styles.metaGrid}>
-          <View style={styles.metaCard}>
-            <Text style={styles.metaTitle}>{"\uD83C\uDFAF"} {t("mastery")}</Text>
-            <View style={styles.metaRow}>
-              <Text style={styles.metaLine}>{t("circleLv")}{masteryLevels.circle}</Text>
-              <Text style={styles.metaDot}>{"\u00B7"}</Text>
-              <Text style={styles.metaLine}>{t("cornerLv")}{masteryLevels.corner}</Text>
-              <Text style={styles.metaDot}>{"\u00B7"}</Text>
-              <Text style={styles.metaLine}>{t("curveLv")}{masteryLevels.curve}</Text>
-            </View>
-          </View>
-          <View style={styles.metaCard}>
-            <Text style={styles.metaTitle}>{"\uD83D\uDCCB"} {t("quests")}</Text>
-            <View style={styles.metaRow}>
-              <Text style={styles.metaLine}>{t("dailyAbbr")} {dailyStats.done}/{dailyStats.total}</Text>
-              <Text style={styles.metaDot}>{"\u00B7"}</Text>
-              <Text style={styles.metaLine}>{t("weeklyAbbr")} {weeklyStats.done}/{weeklyStats.total}</Text>
-              <Text style={styles.metaDot}>{"\u00B7"}</Text>
-              <Text style={[styles.metaLine, claimableDaily.length + claimableWeekly.length > 0 && { color: PRECISION_COLORS.primaryStrong }]}>{claimableDaily.length + claimableWeekly.length} {t("claimable")}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.homePanelNav}>
-          {[
-            { key: "overview", icon: "O", label: t("overview") },
-            { key: "daily", icon: "D", label: t("daily") },
-            { key: "weekly", icon: "W", label: t("weekly") },
-            { key: "collection", icon: "C", label: t("collection") },
-            { key: "challenge", icon: "\uD83C\uDFC6", label: t("challenge") }
-          ].map((panel) => (
-            <Pressable
-              key={panel.key}
-              onPress={() => setHomePanel(panel.key as HomePanelKey)}
-              style={({ pressed }) => [
-                styles.homePanelButton,
-                homePanel === panel.key && styles.homePanelButtonActive,
-                pressed && styles.buttonPressedSoft
-              ]}
-            >
-              <Text style={[styles.homePanelIcon, homePanel === panel.key && styles.homePanelIconActive]}>
-                {panel.icon}
+            <View f={1}>
+              <View flexDirection="row" ai="center" gap={8}>
+                <Text color={PRECISION_COLORS.textSubtle} fow="900" fos={12} ls={1}>L{selectedLevel.index}</Text>
+                <Text color={PRECISION_COLORS.textStrong} fow="900" fos={16} ls={-0.3}>
+                  {tShape(selectedLevel.targetShape)}
+                </Text>
+              </View>
+              <Text color={PRECISION_COLORS.textMuted} fos={10} mt={3} ls={0.8} textTransform="uppercase" fow="700">
+                {tChapterTitle(getChapterById(selectedLevel.chapterId)?.title ?? "")}
+                {selectedLevel.isBoss ? ` · ${t("boss")}` : ""}
               </Text>
-              <Text style={[styles.homePanelButtonLabel, homePanel === panel.key && styles.homePanelButtonLabelActive]}>
-                {panel.label}
+            </View>
+            <View ai="center" bg={PRECISION_COLORS.goldSoft} py={8} px={12} br={PRECISION_RADIUS.lg} bw={1} borderColor={PRECISION_COLORS.borderGoldSoft}>
+              <Text color={PRECISION_COLORS.goldStrong} fow="900" fos={16}>{progression.cumulativeXp}</Text>
+              <Text color={PRECISION_COLORS.goldStrong} fos={8} fow="800" ls={1.2} textTransform="uppercase" opacity={0.7}>
+                {t("xp")}
               </Text>
-            </Pressable>
-          ))}
+            </View>
+          </View>
+
+          <View flexDirection="row" fw="wrap" gap={8} mb={12}>
+            {metricMeta.map((item, i) => (
+              <View key={i} style={{ width: "48.5%" }}>
+                <MetaCell label={item.label} value={item.value} />
+              </View>
+            ))}
+          </View>
+
+          <View flexDirection="row" ai="center" gap={10} bg={PRECISION_COLORS.surfaceSunken} br={PRECISION_RADIUS.lg} py={12} px={14}>
+            <View w={4} h={4} br={2} bg={PRECISION_COLORS.primaryStrong} />
+            <Text color={PRECISION_COLORS.textDim} fos={11.5} ls={0.2} f={1} fow="600">
+              {tFocusHint(selectedLevel.mechanicTag)}
+            </Text>
+          </View>
+        </GlassCard>
+      </Reveal>
+
+      {/* ── Tabs ── */}
+      <Reveal anim={homeAnimValues[3]}>
+        <View
+          flexDirection="row"
+          height={48}
+          br={PRECISION_RADIUS.pill}
+          bw={1}
+          borderColor={PRECISION_COLORS.borderCard}
+          bg={PRECISION_COLORS.surface}
+          p={4}
+          mb={20}
+        >
+          {tabs.map((tab) => {
+            const active = activeTab === tab.key;
+            return (
+              <Pressable
+                key={tab.key}
+                onPress={() => selectTab(tab.key)}
+                style={({ pressed }) => ({
+                  flex: 1,
+                  borderRadius: PRECISION_RADIUS.pill,
+                  backgroundColor: active ? PRECISION_COLORS.primarySoft : "transparent",
+                  borderColor: active ? "rgba(225,29,72,0.28)" : "transparent",
+                  borderWidth: 1,
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  height: "100%",
+                  justifyContent: "center"
+                })}
+              >
+                <Text
+                  ta="center"
+                  color={active ? PRECISION_COLORS.primaryStrong : PRECISION_COLORS.textMuted}
+                  fos={11}
+                  fow={active ? "900" : "700"}
+                  ls={1.2}
+                  textTransform="uppercase"
+                  numberOfLines={1}
+                >
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         <Animated.View
           style={{
             opacity: homePanelAnim,
             transform: [
-              {
-                translateY: homePanelAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [8, 0]
-                })
-              }
+              { translateY: homePanelAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }
             ]
           }}
         >
-          {homePanel === "overview" ? (
-            <View style={styles.eventCard}>
-              <Text style={styles.metaTitle}>{t("weeklyMiniEvent")}</Text>
-              <Text style={styles.metaLine}>{t("event")}: {progression.weeklyEvent.id}</Text>
-              <Text style={styles.metaLine}>{t("questProgress")}: {progression.weeklyEvent.quests.filter((q) => q.value >= q.target).length}/12</Text>
-              <Text style={styles.metaLine}>{t("rewardChest")}: {progression.weeklyEvent.rewardChestClaimed ? t("claimed") : t("pending")}</Text>
-                <Text style={styles.metaLine}>{t("unlockedLevels")}: {progression.unlockedLevels.length}/{LEVEL_PACK_V1.length}</Text>
-            </View>
-
-          ) : null}
-
-          {homePanel === "daily" ? (
-            <View style={styles.eventCard}>
-              <Text style={styles.metaTitle}>{t("dailyQuestBoard")}</Text>
-              {progression.dailyBoard.quests.map((quest) => {
-                const completed = quest.value >= quest.target;
-                const canClaim = completed && !quest.claimed;
-                const claimKey = `daily:${quest.id}`;
-                const isClaiming = Boolean(claimingRewardKeys[claimKey]);
-                const canPressClaim = canClaim && !isClaiming;
-                return (
-                  <View key={quest.id} style={styles.questRow}>
-                    <Text style={styles.metaLine}>{tQuest(quest.id)} ({quest.value}/{quest.target})</Text>
-                    <Pressable
-                      onPress={() => handleQuestClaim("daily", quest.id)}
-                      disabled={!canPressClaim}
-                      style={({ pressed }) => [
-                        styles.claimButton,
-                        !canPressClaim && styles.claimButtonDisabled,
-                        pressed && canPressClaim && styles.buttonPressedPrimary
-                      ]}
-                    >
-                      <Text style={styles.claimButtonLabel}>
-                        {quest.claimed ? t("claimed") : isClaiming ? t("claiming") : t("claim")}
+          {/* ——— Challenge ——— */}
+          {activeTab === "challenge" ? (
+            <View>
+              {/* Daily shape */}
+              <Pressable onPress={onStartDaily} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.985 : 1 }] })}>
+                <GlassCard accent={dailyShapeState.playedToday ? "gold" : "red"} style={{ marginBottom: 16 }}>
+                  <View flexDirection="row" ai="center" gap={14}>
+                    <View w={48} h={48} br={PRECISION_RADIUS.xxl} ai="center" jc="center"
+                      bg={dailyShapeState.playedToday ? PRECISION_COLORS.goldSoft : PRECISION_COLORS.primarySoft}
+                      bw={1}
+                      borderColor={dailyShapeState.playedToday ? PRECISION_COLORS.borderGoldSoft : "rgba(225,29,72,0.24)"}>
+                      <ShapeMark
+                        shape={dailyShapeState.shape}
+                        size={22}
+                        color={dailyShapeState.playedToday ? PRECISION_COLORS.goldStrong : PRECISION_COLORS.primaryStrong}
+                      />
+                    </View>
+                    <View f={1}>
+                      <View flexDirection="row" ai="center" gap={8}>
+                        <Text color={PRECISION_COLORS.textStrong} fow="900" fos={14} ls={0.2} textTransform="uppercase">
+                          {t("dailyShape")}
+                        </Text>
+                        {dailyShapeState.streak > 0 ? (
+                          <View bg={PRECISION_COLORS.amberSoft} br={PRECISION_RADIUS.pill} px={8} py={2}>
+                            <Text color={PRECISION_COLORS.amberStrong} fow="900" fos={9} ls={0.8}>
+                              {`▲ ${dailyShapeState.streak}`}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text color={PRECISION_COLORS.textMuted} fos={11.5} mt={3} fow="600">
+                        {dailyShapeState.streak > 0
+                          ? `${t("dailyStreakLabel")} ${dailyShapeState.streak} · ${tShape(dailyShapeState.shape)}`
+                          : tShape(dailyShapeState.shape)}
+                        {dailyShapeState.bestAccuracy > 0
+                          ? ` · ${t("dailyBest")} ${(dailyShapeState.bestAccuracy).toFixed(1)}%`
+                          : ""}
                       </Text>
-                    </Pressable>
+                    </View>
+                    <View
+                      bg={dailyShapeState.playedToday ? PRECISION_COLORS.goldSoft : PRECISION_COLORS.primary}
+                      br={PRECISION_RADIUS.lg} px={14} py={10}
+                      bw={1}
+                      borderColor={dailyShapeState.playedToday ? PRECISION_COLORS.borderGoldSoft : "transparent"}
+                    >
+                      <Text
+                        color={dailyShapeState.playedToday ? PRECISION_COLORS.goldStrong : PRECISION_COLORS.primaryInk}
+                        fow="900" fos={12} ls={0.6} textTransform="uppercase"
+                      >
+                        {dailyShapeState.playedToday ? t("dailyReplay") : t("dailyPlay")}
+                      </Text>
+                    </View>
                   </View>
-                );
-              })}
-              <Pressable
-                onPress={handleDailyStreakChest}
-                disabled={
-                  !progression.dailyBoard.streakChestAvailable ||
-                  progression.dailyBoard.streakChestClaimed ||
-                  Boolean(claimingRewardKeys["daily:streak_chest"])
-                }
-                style={({ pressed }) => [
-                  styles.claimWideButton,
-                  (!progression.dailyBoard.streakChestAvailable ||
-                    progression.dailyBoard.streakChestClaimed ||
-                    Boolean(claimingRewardKeys["daily:streak_chest"])) &&
-                    styles.claimButtonDisabled,
-                  pressed &&
-                    progression.dailyBoard.streakChestAvailable &&
-                    !progression.dailyBoard.streakChestClaimed &&
-                    !claimingRewardKeys["daily:streak_chest"] &&
-                    styles.buttonPressedPrimary
-                ]}
-              >
-                <Text style={styles.claimButtonLabel}>
-                  {claimingRewardKeys["daily:streak_chest"] ? t("claiming") : t("claimStreakChest")}
-                </Text>
+                </GlassCard>
               </Pressable>
-            </View>
-          ) : null}
 
-          {homePanel === "weekly" ? (
-            <View style={styles.eventCard}>
-              <Text style={styles.metaTitle}>{t("weeklyChallengeLadder")}</Text>
-              {progression.weeklyLadder.tiers.map((tier) => {
-                const completed = tier.value >= tier.target;
-                const canClaim = completed && !tier.claimed;
-                const claimKey = `weekly:${tier.id}`;
-                const isClaiming = Boolean(claimingRewardKeys[claimKey]);
-                const canPressClaim = canClaim && !isClaiming;
-                return (
-                  <View key={tier.id} style={styles.questRow}>
-                    <Text style={styles.metaLine}>{tQuest(tier.id)} ({tier.value}/{tier.target})</Text>
-                    <Pressable
-                      onPress={() => handleQuestClaim("weekly", tier.id)}
-                      disabled={!canPressClaim}
-                      style={({ pressed }) => [
-                        styles.claimButton,
-                        !canPressClaim && styles.claimButtonDisabled,
-                        pressed && canPressClaim && styles.buttonPressedPrimary
-                      ]}
-                    >
-                      <Text style={styles.claimButtonLabel}>
-                        {tier.claimed ? t("claimed") : isClaiming ? t("claiming") : t("claim")}
-                      </Text>
-                    </Pressable>
-                  </View>
-                );
-              })}
-              <View style={styles.questRow}>
-                <Text style={styles.metaLine}>{tQuest(progression.weeklyLadder.catchUpQuest.id)} ({progression.weeklyLadder.catchUpQuest.value}/{progression.weeklyLadder.catchUpQuest.target})</Text>
-                {(() => {
-                  const catchUpClaimKey = `weekly:${progression.weeklyLadder.catchUpQuest.id}`;
-                  const isClaimingCatchUp = Boolean(claimingRewardKeys[catchUpClaimKey]);
-                  const canClaimCatchUp =
-                    progression.weeklyLadder.catchUpQuest.value >= progression.weeklyLadder.catchUpQuest.target &&
-                    !progression.weeklyLadder.catchUpQuest.claimed &&
-                    !isClaimingCatchUp;
-                  return (
-                <Pressable
-                  onPress={() => handleQuestClaim("weekly", progression.weeklyLadder.catchUpQuest.id)}
-                  disabled={!canClaimCatchUp}
-                  style={({ pressed }) => [
-                    styles.claimButton,
-                    !canClaimCatchUp && styles.claimButtonDisabled,
-                    pressed && canClaimCatchUp && styles.buttonPressedPrimary
-                  ]}
-                >
-                    <Text style={styles.claimButtonLabel}>
-                    {progression.weeklyLadder.catchUpQuest.claimed ? t("claimed") : isClaimingCatchUp ? t("claiming") : t("claim")}
-                  </Text>
-                </Pressable>
-                  );
-                })()}
-              </View>
-            </View>
-          ) : null}
-
-          {homePanel === "collection" ? (
-            <View>
-              {/* Collection Stats Bar */}
-              <View style={styles.collectionStatsBar}>
-                <View style={styles.collectionStatBox}>
-                  <Text style={styles.collectionStatValue}>{progression.collectionAlbum.completedSets.length}</Text>
-                  <Text style={styles.collectionStatLabel}>{t("sets")}</Text>
-                </View>
-                <View style={styles.collectionStatDivider} />
-                <View style={styles.collectionStatBox}>
-                  <Text style={styles.collectionStatValue}>{progression.collectionAlbum.unlockedFrames.length}</Text>
-                  <Text style={styles.collectionStatLabel}>{t("frames")}</Text>
-                </View>
-                <View style={styles.collectionStatDivider} />
-                <View style={styles.collectionStatBox}>
-                  <Text style={styles.collectionStatValue}>{progression.masteryUnlocks.specialChallenges.length}</Text>
-                  <Text style={styles.collectionStatLabel}>{t("special")}</Text>
-                </View>
-                <View style={styles.collectionStatDivider} />
-                <View style={styles.collectionStatBox}>
-                  <Text style={styles.collectionStatValue}>{premiumCosmeticCount}</Text>
-                  <Text style={styles.collectionStatLabel}>{t("cosmetics")}</Text>
-                </View>
+              <View mb={16} px={2}>
+                <Text color={PRECISION_COLORS.textStrong} fow="800" fos={15} ls={-0.2} mb={4}>
+                  {t("shapeChallenge")}
+                </Text>
+                <Text color={PRECISION_COLORS.textMuted} fos={12} fow="500" lh={18}>
+                  {t("challengeDesc")}
+                </Text>
               </View>
 
-              {/* Live Loadout */}
-              <View style={styles.loadoutCard}>
-                <Text style={styles.loadoutTitle}>{"\uD83C\uDFA8"} {t("activeLoadout")}</Text>
-                <View style={styles.loadoutSlots}>
-                  <View style={styles.loadoutSlot}>
-                    <Text style={styles.loadoutSlotIcon}>{"\u270F\uFE0F"}</Text>
-                    <Text style={styles.loadoutSlotLabel}>{t("brush")}</Text>
-                    <Text style={styles.loadoutSlotValue}>{progression.premium.selectedBrushId ? PREMIUM_COSMETIC_CATALOG.find(c => c.id === progression.premium.selectedBrushId)?.name || t("custom") : t("default")}</Text>
-                  </View>
-                  <View style={styles.loadoutSlot}>
-                    <Text style={styles.loadoutSlotIcon}>{"\u2728"}</Text>
-                    <Text style={styles.loadoutSlotLabel}>{t("trail")}</Text>
-                    <Text style={styles.loadoutSlotValue}>{progression.premium.selectedTrailId ? PREMIUM_COSMETIC_CATALOG.find(c => c.id === progression.premium.selectedTrailId)?.name || t("custom") : t("default")}</Text>
-                  </View>
-                  <View style={styles.loadoutSlot}>
-                    <Text style={styles.loadoutSlotIcon}>{"\uD83D\uDDBC\uFE0F"}</Text>
-                    <Text style={styles.loadoutSlotLabel}>{t("frame")}</Text>
-                    <Text style={styles.loadoutSlotValue}>{progression.premium.selectedFrameId ? PREMIUM_COSMETIC_CATALOG.find(c => c.id === progression.premium.selectedFrameId)?.name || t("custom") : t("default")}</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Brush Module */}
-              <Text style={styles.collectionModuleTitle}>{"\u270F\uFE0F"} {t("brushes")}</Text>
-              {brushInventory.length === 0 ? (
-                <View style={styles.emptyModuleCard}>
-                  <Text style={styles.emptyModuleText}>{t("noBrushesYet")}</Text>
-                  <Text style={styles.emptyModuleHint}>{t("unlockWithPremium")}</Text>
-                </View>
-              ) : (
-                brushInventory.map((item) => {
-                  const isEquipped = progression.premium.selectedBrushId === item.id;
-                  const rarityColor = item.rarity === "Mythic" ? "#fb923c" : item.rarity === "Legendary" ? "#a78bfa" : PRECISION_COLORS.cyan;
-                  return (
-                    <View key={item.id} style={[styles.cosmeticCard, isEquipped && styles.cosmeticCardEquipped]}>
-                      <View style={[styles.cosmeticColorStrip, { backgroundColor: item.visual.strokeColor || rarityColor }]} />
-                      <View style={styles.cosmeticCardBody}>
-                        <View style={styles.cosmeticCardTop}>
-                          <View>
-                            <Text style={styles.cosmeticName}>{item.name}</Text>
-                            <View style={[styles.rarityBadge, { backgroundColor: rarityColor + "22", borderColor: rarityColor + "44" }]}>
-                              <Text style={[styles.rarityBadgeText, { color: rarityColor }]}>{tRarity(item.rarity).toUpperCase()}</Text>
-                            </View>
-                          </View>
-                          <Pressable
-                            onPress={() => { void handleSelectPremiumCosmetic(item.id); }}
-                            style={({ pressed }) => [
-                              styles.equipButton,
-                              isEquipped && styles.equipButtonActive,
-                              pressed && styles.buttonPressedSecondary
-                            ]}
-                          >
-                            <Text style={[styles.equipButtonLabel, isEquipped && styles.equipButtonLabelActive]}>{isEquipped ? t("equipped") : t("equip")}</Text>
-                          </Pressable>
-                        </View>
-                        <View style={[styles.cosmeticPreviewBar, { backgroundColor: item.visual.strokeColor || rarityColor }]} />
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-
-              {/* Trail Module */}
-              <Text style={styles.collectionModuleTitle}>{"\u2728"} {t("trails")}</Text>
-              {trailInventory.length === 0 ? (
-                <View style={styles.emptyModuleCard}>
-                  <Text style={styles.emptyModuleText}>{t("noTrailsYet")}</Text>
-                  <Text style={styles.emptyModuleHint}>{t("unlockWithPremium")}</Text>
-                </View>
-              ) : (
-                trailInventory.map((item) => {
-                  const isEquipped = progression.premium.selectedTrailId === item.id;
-                  const rarityColor = item.rarity === "Mythic" ? "#fb923c" : item.rarity === "Legendary" ? "#a78bfa" : PRECISION_COLORS.cyan;
-                  return (
-                    <View key={item.id} style={[styles.cosmeticCard, isEquipped && styles.cosmeticCardEquipped]}>
-                      <View style={[styles.cosmeticColorStrip, { backgroundColor: item.visual.trailColor || rarityColor }]} />
-                      <View style={styles.cosmeticCardBody}>
-                        <View style={styles.cosmeticCardTop}>
-                          <View>
-                            <Text style={styles.cosmeticName}>{item.name}</Text>
-                            <View style={[styles.rarityBadge, { backgroundColor: rarityColor + "22", borderColor: rarityColor + "44" }]}>
-                              <Text style={[styles.rarityBadgeText, { color: rarityColor }]}>{tRarity(item.rarity).toUpperCase()}</Text>
-                            </View>
-                          </View>
-                          <Pressable
-                            onPress={() => { void handleSelectPremiumCosmetic(item.id); }}
-                            style={({ pressed }) => [
-                              styles.equipButton,
-                              isEquipped && styles.equipButtonActive,
-                              pressed && styles.buttonPressedSecondary
-                            ]}
-                          >
-                            <Text style={[styles.equipButtonLabel, isEquipped && styles.equipButtonLabelActive]}>{isEquipped ? t("equipped") : t("equip")}</Text>
-                          </Pressable>
-                        </View>
-                        <View style={[styles.cosmeticPreviewBar, { backgroundColor: item.visual.trailColor || rarityColor, height: 6, borderRadius: 3, opacity: 0.6 }]} />
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-
-              {/* Frame Module */}
-              <Text style={styles.collectionModuleTitle}>{"\uD83D\uDDBC\uFE0F"} {t("frames")}</Text>
-              {frameInventory.length === 0 ? (
-                <View style={styles.emptyModuleCard}>
-                  <Text style={styles.emptyModuleText}>{t("noFramesYet")}</Text>
-                  <Text style={styles.emptyModuleHint}>{t("unlockWithPremium")}</Text>
-                </View>
-              ) : (
-                frameInventory.map((item) => {
-                  const isEquipped = progression.premium.selectedFrameId === item.id;
-                  const rarityColor = item.rarity === "Mythic" ? "#fb923c" : item.rarity === "Legendary" ? "#a78bfa" : PRECISION_COLORS.cyan;
-                  return (
-                    <View key={item.id} style={[styles.cosmeticCard, isEquipped && styles.cosmeticCardEquipped]}>
-                      <View style={[styles.cosmeticColorStrip, { backgroundColor: item.visual.frameColor || rarityColor }]} />
-                      <View style={styles.cosmeticCardBody}>
-                        <View style={styles.cosmeticCardTop}>
-                          <View>
-                            <Text style={styles.cosmeticName}>{item.name}</Text>
-                            <View style={[styles.rarityBadge, { backgroundColor: rarityColor + "22", borderColor: rarityColor + "44" }]}>
-                              <Text style={[styles.rarityBadgeText, { color: rarityColor }]}>{tRarity(item.rarity).toUpperCase()}</Text>
-                            </View>
-                          </View>
-                          <Pressable
-                            onPress={() => { void handleSelectPremiumCosmetic(item.id); }}
-                            style={({ pressed }) => [
-                              styles.equipButton,
-                              isEquipped && styles.equipButtonActive,
-                              pressed && styles.buttonPressedSecondary
-                            ]}
-                          >
-                            <Text style={[styles.equipButtonLabel, isEquipped && styles.equipButtonLabelActive]}>{isEquipped ? t("equipped") : t("equip")}</Text>
-                          </Pressable>
-                        </View>
-                        <View style={[styles.cosmeticPreviewBar, { backgroundColor: item.visual.frameColor || rarityColor, height: 4, borderRadius: 2 }]} />
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          ) : null}
-
-          {homePanel === "challenge" ? (
-            <View>
-              <View style={styles.eventCard}>
-                <Text style={styles.metaTitle}>{"\uD83C\uDFC6"} {t("shapeChallenge")}</Text>
-                <Text style={styles.metaLine}>{t("challengeDesc")}</Text>
-              </View>
-
-              {/* Shape Picker */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-                <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 4 }}>
-                  {[
-                    { key: "circle", label: "\u25CF " + tShape("circle") },
-                    { key: "square", label: "\u25A0 " + tShape("square") },
-                    { key: "triangle", label: "\u25B2 " + tShape("triangle") },
-                    { key: "diamond", label: "\u25C6 " + tShape("diamond") },
-                    { key: "pentagon", label: "\u2B1F " + tShape("pentagon") },
-                    { key: "hexagon", label: "\u2B22 " + tShape("hexagon") },
-                    { key: "heart", label: "\u2665 " + tShape("heart") },
-                    { key: "star", label: "\u2605 " + tShape("star") }
-                  ].map((shape) => (
-                    <Pressable
-                      key={shape.key}
-                      onPress={() => {
-                        setChallengeShape(shape.key);
-                      }}
-                      style={({ pressed }) => [
-                        styles.filterChip,
-                        challengeShape === shape.key && styles.filterChipActive,
-                        pressed && styles.buttonPressedSoft
-                      ]}
-                    >
-                      <Text style={[
-                        styles.filterChipText,
-                        challengeShape === shape.key && styles.filterChipTextActive
-                      ]}>{shape.label}</Text>
-                    </Pressable>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 2 }}>
+                  {SHAPE_KEYS.map((shape) => (
+                    <Chip
+                      key={shape}
+                      label={tShape(shape) as string}
+                      icon={shape}
+                      active={challengeShape === shape}
+                      onPress={() => setChallengeShape(shape)}
+                    />
                   ))}
                 </View>
               </ScrollView>
 
-              {/* Play Button */}
-              <Pressable
+              <PrimaryCta
+                label={`${t("play")} — ${tShape(challengeShape)}`}
                 onPress={startChallengePlay}
-                style={({ pressed }) => [
-                  styles.challengePlayButton,
-                  pressed && styles.buttonPressedSecondary
-                ]}
-              >
-                <Text style={styles.challengePlayButtonText}>
-                  {"\u25B6"} {t("play")}: {tShape(challengeShape)}
-                </Text>
-              </Pressable>
+                height={52}
+              />
 
-              {/* Latest Result */}
-              {challengeResult && (
-                <View style={[styles.eventCard, { borderColor: PRECISION_COLORS.primaryStrong + "44", marginTop: 12 }]}>
-                  <Text style={styles.metaTitle}>{t("yourLatestResult")}</Text>
-                  <View style={{ flexDirection: "row", justifyContent: "space-around", marginTop: 8 }}>
-                    <View style={{ alignItems: "center" }}>
-                      <Text style={styles.leaderboardAccuracy}>{challengeResult.accuracyPercent.toFixed(1)}%</Text>
-                      <Text style={styles.metaLine}>{t("accuracy")}</Text>
+              {challengeResult ? (
+                <View mt={20}>
+                  <SectionLabel>{t("yourLatestResult")}</SectionLabel>
+                  <View flexDirection="row" py={8}>
+                    <View ai="center" f={1}>
+                      <Text color={PRECISION_COLORS.textStrong} fos={17} fow="900">
+                        {challengeResult.accuracyPercent.toFixed(1)}%
+                      </Text>
+                      <Text color={PRECISION_COLORS.textMuted} fos={9} ls={1.2} textTransform="uppercase" fow="800" mt={4}>
+                        {t("accuracy")}
+                      </Text>
                     </View>
-                    <View style={{ alignItems: "center" }}>
-                      <Text style={styles.leaderboardAccuracy}>{"\u2B50".repeat(challengeResult.stars)}</Text>
-                      <Text style={styles.metaLine}>{t("stars")}</Text>
+                    <View w={1} bg={PRECISION_COLORS.borderMuted} my={4} />
+                    <View ai="center" f={1}>
+                      <Text color={PRECISION_COLORS.amberStrong} fos={17} fow="900">
+                        {"★".repeat(challengeResult.stars)}{"☆".repeat(Math.max(0, 3 - challengeResult.stars))}
+                      </Text>
+                      <Text color={PRECISION_COLORS.textMuted} fos={9} ls={1.2} textTransform="uppercase" fow="800" mt={4}>
+                        {t("stars")}
+                      </Text>
                     </View>
-                    <View style={{ alignItems: "center" }}>
-                      <Text style={styles.leaderboardAccuracy}>+{challengeResult.xpGained}</Text>
-                      <Text style={styles.metaLine}>{t("xp")}</Text>
+                    <View w={1} bg={PRECISION_COLORS.borderMuted} my={4} />
+                    <View ai="center" f={1}>
+                      <Text color={PRECISION_COLORS.emerald} fos={17} fow="900">+{challengeResult.xpGained}</Text>
+                      <Text color={PRECISION_COLORS.textMuted} fos={9} ls={1.2} textTransform="uppercase" fow="800" mt={4}>
+                        {t("xp")}
+                      </Text>
                     </View>
                   </View>
                 </View>
-              )}
+              ) : null}
 
-              {/* Rankings */}
-              <View style={{ marginTop: 12 }}>
-                <Text style={[styles.metaTitle, { marginBottom: 8, paddingHorizontal: 4 }]}>
-                  {"\uD83C\uDFC6"} {tShape(challengeShape)} {t("rankings")}
-                </Text>
-                {challengeLoading ? (
-                  <View style={styles.emptyModuleCard}>
-                    <Text style={styles.emptyModuleText}>{t("loading")}</Text>
-                  </View>
-                ) : challengeEntries.length === 0 ? (
-                  <View style={styles.emptyModuleCard}>
-                    <Text style={styles.emptyModuleText}>{t("noEntriesYet")}</Text>
-                    <Text style={styles.emptyModuleHint}>{t("beFirstToSubmit")}</Text>
-                  </View>
-                ) : (
-                  challengeEntries.map((entry, index) => (
-                    <View key={`${entry.userId}-${index}`} style={[
-                      styles.leaderboardRow,
-                      index === 0 && styles.leaderboardRowGold,
-                      index === 1 && styles.leaderboardRowSilver,
-                      index === 2 && styles.leaderboardRowBronze,
-                      entry.userId === "local-user" && { borderColor: PRECISION_COLORS.cyan, borderWidth: 1.5 }
-                    ]}>
-                      <View style={styles.leaderboardRank}>
-                        <Text style={[
-                          styles.leaderboardRankText,
-                          index < 3 && styles.leaderboardRankTextTop
-                        ]}>
-                          {index === 0 ? "\uD83E\uDD47" : index === 1 ? "\uD83E\uDD48" : index === 2 ? "\uD83E\uDD49" : `#${index + 1}`}
-                        </Text>
-                      </View>
-                      <View style={styles.leaderboardInfo}>
-                        <Text style={styles.leaderboardName}>{entry.displayName}</Text>
-                      </View>
-                      <View style={styles.leaderboardStats}>
-                        <Text style={styles.leaderboardAccuracy}>{entry.accuracyPercent.toFixed(1)}%</Text>
-                        <Text style={styles.leaderboardStars}>
-                          {"\u2B50".repeat(entry.stars)}
-                        </Text>
-                      </View>
-                    </View>
-                  ))
-                )}
+              <View mt={16}>
+                <Rankings
+                  heading={`${tShape(challengeShape)} ${t("rankings")}`}
+                  loading={challengeLoading}
+                  emptyTitle={t("noEntriesYet")}
+                  rows={challengeEntries.map((entry, i) => ({
+                    key: `${entry.userId}-${i}`,
+                    name: entry.displayName,
+                    value: `${entry.accuracyPercent.toFixed(1)}%`,
+                    badge: "★".repeat(entry.stars),
+                    self: entry.userId === "local-user"
+                  }))}
+                />
               </View>
             </View>
           ) : null}
 
-          <View style={styles.eventCard}>
-            <Text style={styles.metaTitle}>{t("personalBestGhost")}</Text>
-            <Text style={styles.metaLine}>{t("currentLevelPBAccuracy")}: {progression.personalBestByLevel[selectedLevelId]?.accuracyPercent?.toFixed(2) || "--"}%</Text>
-            <Text style={styles.metaLine}>{t("currentLevelPBTime")}: {progression.personalBestByLevel[selectedLevelId]?.durationMs || "--"}ms</Text>
-            <Text style={styles.metaLine}>{t("mechanic")}: {tMechanic(mechanicTag).toUpperCase()} {mechanicIsBoss ? `| ${t("boss")}` : ""}</Text>
-            <Text style={styles.metaLine}>{tMechanicDesc(mechanicTag)}</Text>
-          </View>
+          {/* ——— Leaderboard ——— */}
+          {activeTab === "leaderboard" ? (
+            <View>
+              <View mb={16} px={2}>
+                <Text color={PRECISION_COLORS.textStrong} fow="800" fos={15} ls={-0.2} mb={4}>
+                  {t("globalRankings")}
+                </Text>
+                <Text color={PRECISION_COLORS.textMuted} fos={12} fow="500" lh={18}>
+                  {t("globalRankingsDesc")}
+                </Text>
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 2 }}>
+                  <Chip
+                    label={t("allShapes")}
+                    active={leaderboardShapeFilter === ""}
+                    onPress={() => setLeaderboardShapeFilter("")}
+                  />
+                  {SHAPE_KEYS.map((shape) => (
+                    <Chip
+                      key={shape}
+                      label={tShape(shape) as string}
+                      icon={shape}
+                      active={leaderboardShapeFilter === shape}
+                      onPress={() => setLeaderboardShapeFilter(shape)}
+                    />
+                  ))}
+                </View>
+              </ScrollView>
+
+              <Rankings
+                heading={t("globalRankings")}
+                loading={false}
+                emptyTitle={t("noLeaderboardData")}
+                rows={leaderboardEntries.map((entry, i) => ({
+                  key: `${entry.userId}-${i}`,
+                  name: entry.displayName,
+                  value: `${entry.accuracyPercent.toFixed(1)}%`,
+                  badge: "★".repeat(entry.stars),
+                  self: entry.userId === "local-user"
+                }))}
+              />
+            </View>
+          ) : null}
+
+          {/* ——— Weekly ladder ——— */}
+          {activeTab === "weekly" ? (
+            <View>
+              <View mb={16} px={2}>
+                <Text color={PRECISION_COLORS.textStrong} fow="800" fos={15} ls={-0.2} mb={4}>
+                  {t("weeklyLadderGlobal")}
+                </Text>
+                <Text color={PRECISION_COLORS.textMuted} fos={12} fow="500" lh={18}>
+                  {t("weeklyLadderGlobalDesc")}
+                </Text>
+              </View>
+
+              <Rankings
+                heading={t("weeklyLadderGlobal")}
+                loading={false}
+                emptyTitle={t("noLadderData")}
+                rows={ladderEntries.map((entry, i) => ({
+                  key: `${entry.userId}-${i}`,
+                  name: entry.displayName,
+                  value: String(entry.ladderPoints),
+                  badge: "★".repeat(entry.stars),
+                  self: entry.userId === "local-user"
+                }))}
+              />
+            </View>
+          ) : null}
         </Animated.View>
-      </Animated.View>
+      </Reveal>
 
-      <Animated.View
-        style={{
-          opacity: homeAnimValues[4],
-          transform: [
-            {
-              translateY: homeAnimValues[4].interpolate({
-                inputRange: [0, 1],
-                outputRange: [18, 0]
-              })
-            }
-          ]
-        }}
-      >
-        <View style={styles.mainActionColumn}>
-          <LinearGradient colors={PRECISION_GRADIENTS.primary} style={styles.startButton}>
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.startButtonSheen,
-                {
-                  transform: [
-                    {
-                      translateX: ctaSheenAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-240, 260]
-                      })
-                    },
-                    { rotate: "18deg" }
-                  ]
-                }
-              ]}
-            />
-            <Pressable
-              style={({ pressed }) => [styles.startButtonPressable, pressed && styles.buttonPressedPrimary]}
-              onPress={() => setScreen("home")}
-            >
-              <Text style={styles.startButtonLabel}>{t("goToLevels")}</Text>
-            </Pressable>
-          </LinearGradient>
-
-          <Pressable onPress={handlePremiumPurchase} style={({ pressed }) => [styles.premiumButton, pressed && styles.buttonPressedSecondary]}>
-            <Text style={styles.premiumButtonLabel}>{hasPremiumNoAds ? t("premiumActive") : t("unlockNoAds")}</Text>
-          </Pressable>
+      {/* ── Status feedback + CTA ── */}
+      <Reveal anim={homeAnimValues[4]}>
+        <View mb={16}>
+          <StatusPill text={statusText} />
         </View>
-      </Animated.View>
+        <PrimaryCta label={t("goToLevels")} onPress={() => setScreen("home")} />
+      </Reveal>
     </ScrollView>
   );
 }

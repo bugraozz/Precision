@@ -1,19 +1,14 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import { Animated, StyleSheet } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { Animated, Pressable } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
+import { LinearGradient } from "expo-linear-gradient";
 import { Text, View } from "tamagui";
 import { normalizeToUnitBox } from "../../../src/core/geometry";
 import { Point } from "../../../src/core/types";
 import { CosmeticVisual } from "../cosmetics";
-import Pressable from "./TamaguiPressable";
 import { t, tShape } from "../i18n";
-import {
-  PRECISION_COLORS,
-  PRECISION_RADIUS,
-  PRECISION_SHADOW,
-  PRECISION_SPACE,
-  PRECISION_TYPE
-} from "../theme/precisionTokens";
+import { PRECISION_COLORS, PRECISION_GRADIENTS, PRECISION_RADIUS } from "../theme/precisionTokens";
+import { ShapeMark } from "./ui";
 
 type RoundComparisonCardProps = {
   targetShape: string;
@@ -23,6 +18,8 @@ type RoundComparisonCardProps = {
   stars: number;
   xpGained: number;
   source: "local" | "server";
+  flawless?: boolean;
+  ghostPoints?: Point[];
   onRetry: () => void;
   onNextLevel: () => void;
   canGoNextLevel: boolean;
@@ -34,366 +31,271 @@ type RoundComparisonCardProps = {
   cosmeticVisual?: CosmeticVisual;
 };
 
-const PREVIEW_SIZE = 240;
-const PREVIEW_PADDING = 18;
-const RING_RADIUS = 56;
+const RING_SIZE = 108;
+const RING_RADIUS = 44;
 const RING_CIRC = 2 * Math.PI * RING_RADIUS;
 
-function toPath(points: Point[]): string {
-  if (points.length === 0) {
-    return "";
-  }
-
+function toPathDynamic(points: Point[], size: number): string {
+  if (points.length === 0) return "";
+  const padding = Math.round(size * 0.08);
   const normalized = normalizeToUnitBox(points);
-  const drawSize = PREVIEW_SIZE - PREVIEW_PADDING * 2;
-
+  const drawSize = size - padding * 2;
   const mapped = normalized.map((point) => ({
-    x: PREVIEW_PADDING + point.x * drawSize,
-    y: PREVIEW_PADDING + point.y * drawSize
+    x: padding + point.x * drawSize,
+    y: padding + point.y * drawSize
   }));
-
   const [first, ...rest] = mapped;
   const commands = rest.map((point) => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
   return `M ${first.x.toFixed(2)} ${first.y.toFixed(2)} ${commands}`;
 }
 
 export default function RoundComparisonCard({
-  targetShape,
-  userPoints,
-  accuracyPercent,
-  meanDeviation,
-  stars,
-  xpGained,
-  source,
-  onRetry,
-  onNextLevel,
-  canGoNextLevel,
-  nextLevelLabel,
-  onRewardedRetry,
-  showRewardedRetry = false,
-  rewardedRetryLabel = t("watchAdExtraRetry"),
-  canUseRewardedRetry = true,
-  cosmeticVisual
+  targetShape, userPoints, accuracyPercent, meanDeviation, stars, xpGained, source,
+  flawless = false, ghostPoints,
+  onRetry, onNextLevel, canGoNextLevel, nextLevelLabel,
+  onRewardedRetry, showRewardedRetry = false, rewardedRetryLabel = t("watchAdExtraRetry"), canUseRewardedRetry = true, cosmeticVisual
 }: RoundComparisonCardProps) {
-  const userPath = useMemo(() => toPath(userPoints), [userPoints]);
-  const resolvedVisual =
-    cosmeticVisual || {
-      strokeColor: PRECISION_COLORS.accentSoft,
-      strokeWidth: 4,
-      frameColor: PRECISION_COLORS.cyanSoft,
-      accentColor: PRECISION_COLORS.accentSoft
-    };
+  const resolvedVisual = cosmeticVisual || {
+    strokeColor: PRECISION_COLORS.accentSoft,
+    strokeWidth: 4,
+    frameColor: PRECISION_COLORS.cyanSoft,
+    accentColor: PRECISION_COLORS.accentSoft
+  };
   const metricAnimValues = useRef([new Animated.Value(0), new Animated.Value(0), new Animated.Value(0)]).current;
   const clampedAccuracy = Math.max(0, Math.min(100, accuracyPercent));
   const ringProgress = (RING_CIRC * clampedAccuracy) / 100;
-  const starsText = "★".repeat(stars) + "☆".repeat(3 - stars);
+  const ringColor = flawless ? PRECISION_COLORS.goldStrong : resolvedVisual.accentColor;
+
+  /* FLAWLESS: ring pulse + shimmer label */
+  const flawlessAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    flawlessAnim.setValue(0);
+    if (flawless) {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(flawlessAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+          Animated.timing(flawlessAnim, { toValue: 0.35, duration: 700, useNativeDriver: true })
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flawless]);
 
   useEffect(() => {
     metricAnimValues.forEach((value) => value.setValue(0));
-    Animated.stagger(
-      80,
-      metricAnimValues.map((value) =>
-        Animated.timing(value, {
-          toValue: 1,
-          duration: 260,
-          useNativeDriver: true
-        })
-      )
-    ).start();
-  }, [metricAnimValues, stars, xpGained, meanDeviation, accuracyPercent]);
+    Animated.stagger(80, metricAnimValues.map((value) =>
+      Animated.timing(value, { toValue: 1, duration: 260, useNativeDriver: true })
+    )).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stars, xpGained, meanDeviation, accuracyPercent]);
+
+  const hasGhost = Boolean(ghostPoints && ghostPoints.length >= 2);
+
+  const [drawAreaSize, setDrawAreaSize] = React.useState(140);
 
   return (
-    <View style={[styles.card, { borderColor: resolvedVisual.frameColor }]}>
-      <View pointerEvents="none" style={styles.cardShine} />
-      <Text style={styles.title}>{t("excellent")}</Text>
-      <Text style={styles.subtitle}>{t("target")} {tShape(targetShape).toUpperCase()} | {source === "local" ? t("local") : t("server")}</Text>
+    <View
+      flex={1}
+      br={PRECISION_RADIUS.card}
+      bw={1.5}
+      borderColor={resolvedVisual.frameColor}
+      bg={PRECISION_COLORS.bgPanelStrong}
+      overflow="hidden"
+      shadowColor={PRECISION_COLORS.shadowBlack}
+      shadowOpacity={0.45}
+      shadowRadius={24}
+      shadowOffset={{ width: 0, height: 10 }}
+    >
+      <LinearGradient
+        colors={PRECISION_GRADIENTS.cardGloss}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        pointerEvents="none"
+        style={{ position: "absolute", top: 0, left: 0, right: 0, height: 110 }}
+      />
 
-      <View style={styles.ringWrap}>
-        <Svg width={140} height={140}>
-          <Circle cx="70" cy="70" r={RING_RADIUS} fill="none" stroke={PRECISION_COLORS.borderCard} strokeWidth="6" />
-          <Circle
-            cx="70"
-            cy="70"
-            r={RING_RADIUS}
-            fill="none"
-            stroke={resolvedVisual.accentColor}
-            strokeWidth="6"
-            strokeLinecap="round"
-            strokeDasharray={`${ringProgress} ${RING_CIRC}`}
-            transform="rotate(-90 70 70)"
-          />
-        </Svg>
-        <View style={styles.ringCenter}>
-          <Text style={styles.accuracyValue}>{clampedAccuracy.toFixed(0)}%</Text>
-          <Text style={styles.accuracyLabel}>{t("accuracy")}</Text>
+      {/* ── Accuracy ring + verdict ── */}
+      <View pt={16} ai="center">
+        <View flexDirection="row" ai="center" gap={16} px={16}>
+          <Animated.View style={flawless ? { shadowColor: PRECISION_COLORS.goldStrong, shadowOpacity: flawlessAnim.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.85] }), shadowRadius: 18, shadowOffset: { width: 0, height: 0 } } : undefined}>
+            <View w={RING_SIZE} h={RING_SIZE} ai="center" jc="center">
+              <Svg width={RING_SIZE} height={RING_SIZE}>
+                <Circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_RADIUS} fill="none" stroke={PRECISION_COLORS.whiteTrack} strokeWidth="5" />
+                <Circle
+                  cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_RADIUS}
+                  fill="none"
+                  stroke={ringColor}
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeDasharray={`${ringProgress} ${RING_CIRC}`}
+                  transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+                />
+              </Svg>
+              <View ai="center" style={{ position: "absolute" }}>
+                <Text color={PRECISION_COLORS.textStrong} fos={23} fow="900" ls={-0.5}>{clampedAccuracy.toFixed(0)}%</Text>
+                <Text color={PRECISION_COLORS.textBodyMuted} fos={8.5} ls={1.4} textTransform="uppercase" fow="700">{t("accuracy")}</Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          <View>
+            {flawless ? (
+              <View flexDirection="row" ai="center" gap={6} mb={4}>
+                <View w={4} h={4} br={2} bg={PRECISION_COLORS.goldStrong} />
+                <Text color={PRECISION_COLORS.goldStrong} fow="900" fos={11} ls={2.4} textTransform="uppercase">
+                  {t("flawlessLabel")}
+                </Text>
+                <View w={4} h={4} br={2} bg={PRECISION_COLORS.goldStrong} />
+              </View>
+            ) : null}
+            <Text color={PRECISION_COLORS.textStrong} fos={24} lh={26} fow="900" ls={-0.5} mb={4}>
+              {t("excellent")}
+            </Text>
+            <Text color={flawless ? PRECISION_COLORS.goldStrong : PRECISION_COLORS.primaryStrong} fos={20} ls={3} mb={4}>
+              {"★".repeat(stars)}{"☆".repeat(Math.max(0, 3 - stars))}
+            </Text>
+            <Text color={PRECISION_COLORS.textMuted} fos={10} ls={0.6} textTransform="uppercase" fow="700">
+              {tShape(targetShape)} · {source === "local" ? t("local") : t("server")}
+            </Text>
+          </View>
         </View>
       </View>
 
-      <Text style={[styles.starsLine, { color: resolvedVisual.accentColor }]}>{starsText}</Text>
-
-      <View style={[styles.previewWrap, { borderColor: resolvedVisual.frameColor }]}>
-        <Svg width={PREVIEW_SIZE} height={PREVIEW_SIZE}>
-          {resolvedVisual.trailColor ? (
-            <Path d={userPath} fill="none" stroke={resolvedVisual.trailColor} strokeWidth={resolvedVisual.trailWidth || 8} />
+      {/* ── Stroke preview ── */}
+      <View
+        flex={1}
+        ai="center"
+        jc="center"
+        margin={16}
+        bg="rgba(0,0,0,0.32)"
+        br={PRECISION_RADIUS.xxl}
+        bw={1}
+        borderColor={PRECISION_COLORS.borderMuted}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          const s = Math.min(width - 16, height - 16);
+          if (s > 0) setDrawAreaSize(s);
+        }}
+      >
+        <Svg width={drawAreaSize} height={drawAreaSize}>
+          {hasGhost ? (
+            <Path
+              d={toPathDynamic(ghostPoints as Point[], drawAreaSize)}
+              fill="none"
+              stroke={PRECISION_COLORS.cyan}
+              strokeWidth={2.5}
+              strokeDasharray="6 8"
+              opacity={0.55}
+            />
           ) : null}
-          <Path d={userPath} fill="none" stroke={resolvedVisual.strokeColor} strokeWidth={Math.max(3.5, resolvedVisual.strokeWidth)} />
+          {resolvedVisual.trailColor && <Path d={toPathDynamic(userPoints, drawAreaSize)} fill="none" stroke={resolvedVisual.trailColor} strokeWidth={resolvedVisual.trailWidth || 8} />}
+          <Path d={toPathDynamic(userPoints, drawAreaSize)} fill="none" stroke={resolvedVisual.strokeColor} strokeWidth={Math.max(3, resolvedVisual.strokeWidth)} />
         </Svg>
+        {hasGhost ? (
+          <View
+            pos="absolute" t={8} r={10}
+            flexDirection="row" ai="center" gap={6}
+            bg="rgba(0,0,0,0.4)" br={999} px={8} py={3}
+            bw={1} borderColor="rgba(195,208,222,0.25)"
+          >
+            <ShapeMark shape="circle" size={7} color={PRECISION_COLORS.cyan} strokeWidth={2.6} />
+            <Text color={PRECISION_COLORS.cyan} fos={8.5} fow="800" ls={1.2} textTransform="uppercase">
+              {t("ghostLabel")}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
-      <View style={styles.metricsRow}>
-        <Animated.View
-          style={[
-            styles.metricMini,
-            {
-              opacity: metricAnimValues[0],
-              transform: [
-                {
-                  translateY: metricAnimValues[0].interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [10, 0]
-                  })
-                }
-              ]
-            }
-          ]}
-        >
-          <Text style={styles.metricValue}>+{stars}</Text>
-          <Text style={styles.metricLabel}>{t("stars")}</Text>
-        </Animated.View>
-        <Animated.View
-          style={[
-            styles.metricMini,
-            {
-              opacity: metricAnimValues[1],
-              transform: [
-                {
-                  translateY: metricAnimValues[1].interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [10, 0]
-                  })
-                }
-              ]
-            }
-          ]}
-        >
-          <Text style={styles.metricValue}>+{xpGained}</Text>
-          <Text style={styles.metricLabel}>{t("points")}</Text>
-        </Animated.View>
-        <Animated.View
-          style={[
-            styles.metricMini,
-            {
-              opacity: metricAnimValues[2],
-              transform: [
-                {
-                  translateY: metricAnimValues[2].interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [10, 0]
-                  })
-                }
-              ]
-            }
-          ]}
-        >
-          <Text style={styles.metricValue}>{meanDeviation.toFixed(3)}</Text>
-          <Text style={styles.metricLabel}>{t("deviation")}</Text>
-        </Animated.View>
+      {/* ── Metrics ── */}
+      <View flexDirection="row" gap={10} jc="center" mx={16} mb={14}>
+        {[
+          { label: t("stars"), val: `+${stars}`, anim: metricAnimValues[0], color: PRECISION_COLORS.primaryStrong },
+          { label: t("points"), val: `+${xpGained}`, anim: metricAnimValues[1], color: PRECISION_COLORS.cyan },
+          { label: t("deviation"), val: meanDeviation.toFixed(3), anim: metricAnimValues[2], color: PRECISION_COLORS.textStrong }
+        ].map((m, i) => (
+          <Animated.View key={i} style={{ flex: 1, opacity: m.anim, transform: [{ translateY: m.anim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }}>
+            <View ai="center" bg={PRECISION_COLORS.surfaceSunken} br={PRECISION_RADIUS.xl} py={12} px={12}>
+              <Text color={m.color} fow="900" fos={15} ls={-0.3}>{m.val}</Text>
+              <Text color={PRECISION_COLORS.textBodyMuted} fos={9} mt={1} ls={1.2} textTransform="uppercase" fow="700">{m.label}</Text>
+            </View>
+          </Animated.View>
+        ))}
       </View>
 
-      <View style={styles.actionRow}>
-        <Pressable
-          onPress={onNextLevel}
-          disabled={!canGoNextLevel}
-          style={({ pressed }) => [
-            styles.primaryButton,
-            !canGoNextLevel && styles.nextButtonDisabled,
-            pressed && canGoNextLevel && styles.buttonPressedPrimary
-          ]}
-        >
-          <Text style={styles.primaryLabel}>{nextLevelLabel}</Text>
-        </Pressable>
+      {/* ── Actions ── */}
+      <View px={16} pb={16} gap={10}>
+        <View flexDirection="row" gap={10}>
+          <View flex={1}>
+            <View br={PRECISION_RADIUS.xl} overflow="hidden" opacity={canGoNextLevel ? 1 : 0.4}>
+              <Pressable
+                onPress={onNextLevel}
+                disabled={!canGoNextLevel}
+                style={({ pressed }) => ({
+                  paddingVertical: 14,
+                  borderRadius: PRECISION_RADIUS.xl,
+                  backgroundColor: PRECISION_COLORS.primary,
+                  shadowColor: PRECISION_COLORS.primary,
+                  shadowOpacity: canGoNextLevel ? 0.35 : 0,
+                  shadowRadius: 14,
+                  shadowOffset: { width: 0, height: 5 },
+                  transform: [{ scale: pressed && canGoNextLevel ? 0.97 : 1 }]
+                })}
+              >
+                <Text ta="center" color={PRECISION_COLORS.primaryInk} fow="900" fos={14} ls={0.4} numberOfLines={1}>
+                  {nextLevelLabel}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
 
-        <Pressable onPress={onRetry} style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressedSecondary]}>
-          <Text style={styles.secondaryLabel}>{t("tryAgain")}</Text>
-        </Pressable>
+          <Pressable
+            onPress={onRetry}
+            style={({ pressed }) => ({
+              borderRadius: PRECISION_RADIUS.xl,
+              paddingVertical: 14,
+              paddingHorizontal: 22,
+              borderWidth: 1,
+              borderColor: PRECISION_COLORS.border,
+              backgroundColor: pressed ? PRECISION_COLORS.surfaceStrong : PRECISION_COLORS.surface,
+              transform: [{ scale: pressed ? 0.98 : 1 }]
+            })}
+          >
+            <Text ta="center" color={PRECISION_COLORS.textDim} fow="800" fos={13} ls={0.6} textTransform="uppercase">
+              {t("tryAgain")}
+            </Text>
+          </Pressable>
+        </View>
+
+        {showRewardedRetry ? (
+          <Pressable
+            onPress={onRewardedRetry}
+            disabled={!canUseRewardedRetry}
+            style={({ pressed }) => ({
+              borderWidth: 1,
+              borderColor: PRECISION_COLORS.borderGoldActive,
+              backgroundColor: PRECISION_COLORS.primarySoft,
+              borderRadius: PRECISION_RADIUS.xl,
+              paddingVertical: 11,
+              opacity: canUseRewardedRetry ? 1 : 0.4,
+              transform: [{ scale: pressed && canUseRewardedRetry ? 0.98 : 1 }]
+            })}
+          >
+            <Text ta="center" color={PRECISION_COLORS.primaryStrong} fow="800" fos={12} ls={0.3}>
+              {rewardedRetryLabel}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
-      {showRewardedRetry ? (
-        <Pressable
-          onPress={onRewardedRetry}
-          disabled={!canUseRewardedRetry}
-          style={({ pressed }) => [
-            styles.rewardedButton,
-            !canUseRewardedRetry && styles.rewardedButtonDisabled,
-            pressed && canUseRewardedRetry && styles.buttonPressedPrimary
-          ]}
-        >
-          <Text style={styles.rewardedLabel}>{rewardedRetryLabel}</Text>
-        </Pressable>
-      ) : null}
+      {/* ── Watermark (visible on shared cards) ── */}
+      <View flexDirection="row" ai="center" jc="center" gap={6} pb={14} pt={2}>
+        <ShapeMark shape="star" size={11} color={PRECISION_COLORS.goldStrong} strokeWidth={2.2} />
+        <Text color={PRECISION_COLORS.textMuted} fos={10} fow="800" ls={2} textTransform="uppercase">
+          DrawPro · {t("appSubtitle")}
+        </Text>
+      </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    marginTop: PRECISION_SPACE.xxl,
-    backgroundColor: PRECISION_COLORS.bgMission,
-    borderColor: PRECISION_COLORS.border,
-    borderWidth: 1,
-    borderRadius: 30,
-    padding: PRECISION_SPACE.screen,
-    overflow: "hidden",
-    alignItems: "center",
-    shadowColor: PRECISION_COLORS.shadowBlack,
-    ...PRECISION_SHADOW.xl
-  },
-  cardShine: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: PRECISION_SPACE.overlay,
-    backgroundColor: PRECISION_COLORS.cyanAura
-  },
-  title: {
-    fontSize: PRECISION_TYPE.displayLg,
-    fontWeight: "900",
-    color: PRECISION_COLORS.textStrong,
-    letterSpacing: -0.5
-  },
-  subtitle: {
-    marginTop: PRECISION_SPACE.sm,
-    marginBottom: PRECISION_SPACE.xxl,
-    color: PRECISION_COLORS.textMuted,
-    fontSize: PRECISION_TYPE.sub,
-    letterSpacing: 0.8,
-    textTransform: "uppercase"
-  },
-  ringWrap: {
-    width: 140,
-    height: 140,
-    justifyContent: "center",
-    alignItems: "center"
-  },
-  ringCenter: {
-    position: "absolute",
-    alignItems: "center"
-  },
-  accuracyValue: {
-    color: PRECISION_COLORS.textStrong,
-    fontSize: PRECISION_TYPE.hero,
-    fontWeight: "900",
-    letterSpacing: -0.5
-  },
-  accuracyLabel: {
-    color: PRECISION_COLORS.textBodyMuted,
-    fontSize: PRECISION_TYPE.label,
-    letterSpacing: 0.5
-  },
-  starsLine: {
-    color: PRECISION_COLORS.primaryStrong,
-    marginTop: PRECISION_SPACE.xl,
-    marginBottom: PRECISION_SPACE.lg,
-    fontSize: PRECISION_TYPE.display,
-    letterSpacing: 8
-  },
-  previewWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: PRECISION_COLORS.bgPanelSoft,
-    borderRadius: PRECISION_RADIUS.xxl,
-    borderWidth: 1,
-    borderColor: PRECISION_COLORS.borderGoldSoft,
-    paddingVertical: PRECISION_SPACE.lg,
-    marginBottom: PRECISION_SPACE.xl
-  },
-  metricsRow: {
-    flexDirection: "row",
-    gap: PRECISION_SPACE.lg,
-    marginBottom: PRECISION_SPACE.xxl
-  },
-  metricMini: {
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: PRECISION_COLORS.borderCard,
-    backgroundColor: PRECISION_COLORS.bgGlass,
-    borderRadius: PRECISION_RADIUS.xl,
-    paddingVertical: PRECISION_SPACE.lg,
-    paddingHorizontal: PRECISION_SPACE.xl,
-    minWidth: 94
-  },
-  metricValue: {
-    color: PRECISION_COLORS.textStrong,
-    fontWeight: "900",
-    fontSize: PRECISION_TYPE.metric,
-    letterSpacing: -0.3
-  },
-  metricLabel: {
-    color: PRECISION_COLORS.textBodyMuted,
-    fontSize: PRECISION_TYPE.label,
-    marginTop: 2,
-    letterSpacing: 0.5
-  },
-  actionRow: {
-    marginTop: PRECISION_SPACE.xl,
-    width: "100%",
-    gap: PRECISION_SPACE.lg
-  },
-  primaryButton: {
-    borderRadius: PRECISION_RADIUS.xl,
-    paddingVertical: PRECISION_SPACE.xxl,
-    backgroundColor: PRECISION_COLORS.primary,
-    shadowColor: PRECISION_COLORS.primary,
-    ...PRECISION_SHADOW.md
-  },
-  primaryLabel: {
-    textAlign: "center",
-    color: PRECISION_COLORS.textStrong,
-    fontWeight: "900",
-    fontSize: 18,
-    letterSpacing: 0.3
-  },
-  secondaryButton: {
-    borderRadius: PRECISION_RADIUS.xl,
-    paddingVertical: 15,
-    borderWidth: 1,
-    borderColor: PRECISION_COLORS.borderSoft,
-    backgroundColor: PRECISION_COLORS.bgGlass
-  },
-  nextButtonDisabled: {
-    opacity: 0.35
-  },
-  secondaryLabel: {
-    textAlign: "center",
-    color: PRECISION_COLORS.textDim,
-    fontWeight: "800",
-    fontSize: 16
-  },
-  rewardedButton: {
-    marginTop: PRECISION_SPACE.lg,
-    borderWidth: 1,
-    borderColor: PRECISION_COLORS.borderGoldActive,
-    backgroundColor: PRECISION_COLORS.primarySoft,
-    borderRadius: 16,
-    paddingVertical: 13,
-    width: "100%"
-  },
-  rewardedButtonDisabled: {
-    opacity: 0.4
-  },
-  buttonPressedPrimary: {
-    transform: [{ scale: 0.97 }],
-    opacity: 0.85
-  },
-  buttonPressedSecondary: {
-    transform: [{ scale: 0.985 }],
-    opacity: 0.9
-  },
-  rewardedLabel: {
-    textAlign: "center",
-    color: PRECISION_COLORS.textClaim,
-    fontWeight: "800",
-    letterSpacing: 0.2
-  }
-});

@@ -1,28 +1,25 @@
 import React from "react";
-import { Animated } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Animated, LayoutChangeEvent, Pressable } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { ScrollView, Text, View } from "tamagui";
-import Pressable from "../components/TamaguiPressable";
+import { Text, View } from "tamagui";
+import { StatusPill } from "../components/ui";
 import DrawingCanvas from "../components/DrawingCanvas";
-import { PRECISION_COLORS, PRECISION_GRADIENTS } from "../theme/precisionTokens";
-import { styles } from "../styles";
+import { PRECISION_COLORS, PRECISION_RADIUS } from "../theme/precisionTokens";
 import {
-  TARGET_PREVIEW_SIZE,
   STABILITY_WOBBLE_WARN,
-  STABILITY_WOBBLE_HEAVY,
-  SYMMETRY_WARN_ACCURACY,
-  SYMMETRY_HEAVY_ACCURACY
+  SYMMETRY_WARN_ACCURACY
 } from "../constants/gameplay";
 import { targetShapePath } from "../utils/shapePreview";
 import type { CosmeticVisual } from "../cosmetics";
-import type { HomePanelKey } from "../types/app";
 import type { Point } from "../../../src/core/types";
 import type { ProgressionState } from "../progression";
 import type { LevelConfig } from "../levels";
 import { getTotalBestStars } from "../progression";
-import { t, tShape, tDifficulty, tMode, tFocusHint, tMechanic } from "../i18n";
+import { t, tShape } from "../i18n";
 import type { Lang } from "../i18n";
+
+/* Compact preview size — smaller than before to save space */
+const COMPACT_PREVIEW = 120;
 
 export type PlayScreenProps = {
   playAnim: Animated.Value;
@@ -33,6 +30,8 @@ export type PlayScreenProps = {
   speedParTimeMs: number;
   playClockMs: number;
   memoryTargetVisible: boolean;
+  memoryPeeksLeft: number;
+  onCanvasLayout?: (minDim: number) => void;
   challengeShape: string;
   challengeLoading: boolean;
   canScore: boolean;
@@ -41,9 +40,7 @@ export type PlayScreenProps = {
   progression: ProgressionState;
   targetPreviewPath: string;
   cosmeticVisual: CosmeticVisual;
-  // Handlers
   setScreen: (screen: "main" | "home" | "play" | "complete") => void;
-  setHomePanel: (panel: HomePanelKey) => void;
   resetRound: () => void;
   handleStrokeCommitted: (points: Point[], strokeStartedAtMs: number, strokeEndedAtMs: number) => void;
   handleLocalScore: () => void;
@@ -51,17 +48,68 @@ export type PlayScreenProps = {
   lang: Lang;
 };
 
+/** Returns a single-line mechanic status string */
+function mechanicStatusLine(
+  mechanic: string,
+  playClockMs: number,
+  speedParTimeMs: number,
+  memoryTargetVisible: boolean
+): string | null {
+  switch (mechanic) {
+    case "speed": {
+      if (playClockMs <= speedParTimeMs) {
+        return `▪ ${(Math.max(0, speedParTimeMs - playClockMs) / 1000).toFixed(1)}s`;
+      }
+      return `▪ +${((playClockMs - speedParTimeMs) / 1000).toFixed(1)}s`;
+    }
+    case "stability":
+      return `▪ ${t("stabilityCheck")} ${STABILITY_WOBBLE_WARN.toFixed(2)}`;
+    case "symmetry":
+      return `▪ ${t("symmetryCheck")} ${SYMMETRY_WARN_ACCURACY}%+`;
+    case "memory":
+      return memoryTargetVisible
+        ? `▪ ${t("targetVisibleBriefly")}`
+        : `▪ ${t("targetHiddenDrawFromMemory")}`;
+    default:
+      return null;
+  }
+}
+
+const navButtonStyle = ({ pressed }: { pressed: boolean }) => ({
+  paddingHorizontal: 13,
+  paddingVertical: 8,
+  borderRadius: PRECISION_RADIUS.lg,
+  backgroundColor: pressed ? PRECISION_COLORS.surfaceStrong : PRECISION_COLORS.surface,
+  borderWidth: 1,
+  borderColor: PRECISION_COLORS.border,
+  transform: [{ scale: pressed ? 0.96 : 1 }]
+});
+
 export default function PlayScreen(props: PlayScreenProps) {
   const {
     playAnim, playCtaPulseAnim,
     playMode, selectedLevel, activeMechanic, speedParTimeMs,
-    playClockMs, memoryTargetVisible,
+    playClockMs, memoryTargetVisible, memoryPeeksLeft, onCanvasLayout,
     challengeShape, challengeLoading, canScore,
     canvasResetKey, statusText, progression, targetPreviewPath, cosmeticVisual,
-    setScreen, setHomePanel, resetRound,
-    handleStrokeCommitted, handleLocalScore, handleChallengeServerSubmit,
-    lang
+    setScreen, resetRound,
+    handleStrokeCommitted, handleLocalScore, handleChallengeServerSubmit
   } = props;
+
+  const mechanicLine = playMode === "level"
+    ? mechanicStatusLine(activeMechanic, playClockMs, speedParTimeMs, memoryTargetVisible)
+    : null;
+
+  const isOvertime = activeMechanic === "speed" && playClockMs > speedParTimeMs;
+  const isMemoryHidden = activeMechanic === "memory" && !memoryTargetVisible;
+  const submitDisabled = !canScore || (playMode === "challenge" && challengeLoading);
+
+  const handleCanvasLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width > 0 && height > 0 && onCanvasLayout) {
+      onCanvasLayout(Math.min(width, height));
+    }
+  };
 
   return (
     <Animated.View
@@ -69,184 +117,217 @@ export default function PlayScreen(props: PlayScreenProps) {
         flex: 1,
         opacity: playAnim,
         transform: [
-          {
-            translateY: playAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [22, 0]
-            })
-          }
+          { translateY: playAnim.interpolate({ inputRange: [0, 1], outputRange: [22, 0] }) }
         ]
       }}
     >
-      <ScrollView contentContainerStyle={styles.playContent}>
-        <View style={styles.playTopRow}>
-          <Pressable onPress={() => playMode === "challenge" ? (setScreen("main"), setHomePanel("challenge")) : setScreen("home")} style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressedSoft]}>
-            <Text style={styles.iconButtonLabel}>{playMode === "challenge" ? t("back") : t("home")}</Text>
-          </Pressable>
-
-          <View style={styles.topCenterRow}>
-            {playMode === "challenge" ? (
-              <LinearGradient colors={PRECISION_GRADIENTS.primary} style={styles.starBadge}>
-                <Text style={styles.starBadgeLabel}>{"\u2694\uFE0F"} {t("challengeLabel")}</Text>
-              </LinearGradient>
-            ) : (
-              <>
-                <View style={styles.levelBadge}>
-                  <Text style={styles.levelBadgeLabel}>{t("level")} {selectedLevel.index}</Text>
-                </View>
-                <LinearGradient colors={PRECISION_GRADIENTS.primary} style={styles.starBadge}>
-                  <Text style={styles.starBadgeLabel}>{t("star")} {getTotalBestStars(progression)}</Text>
-                </LinearGradient>
-              </>
-            )}
-          </View>
-
-          <Pressable onPress={resetRound} style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressedSoft]}>
-            <Text style={styles.iconButtonLabel}>{t("reset")}</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.targetBadge}>
-          <Text style={styles.targetBadgeLabel}>{playMode === "challenge" ? t("rankedChallenge") : t("targetShape")}</Text>
-        </View>
-        {playMode === "level" ? (
-          <View style={styles.mechanicBanner}>
-            <Text style={styles.mechanicBannerTitle}>{tMechanic(activeMechanic).toUpperCase()} {t("pressure")}</Text>
-            <Text style={styles.mechanicBannerText}>
-              {activeMechanic === "speed"
-                ? `${t("parRemaining")} ${speedParTimeMs}ms. ${t("speedPressureDesc")}`
-                : activeMechanic === "stability"
-                  ? `${tMechanic("stability")} > ${STABILITY_WOBBLE_WARN.toFixed(2)} ${t("stabilityPressureWarn")}, > ${STABILITY_WOBBLE_HEAVY.toFixed(2)} ${t("stabilityPressurePenalize")}.`
-                  : activeMechanic === "symmetry"
-                    ? `${t("accuracy")} < ${SYMMETRY_WARN_ACCURACY}% ${t("symmetryPressureWarn")}, < ${SYMMETRY_HEAVY_ACCURACY}% ${t("symmetryPressurePenalize")}.`
-                    : t("memoryPressureDesc")}
+      <View flex={1} padding={16} paddingTop={50} paddingBottom={16}>
+        {/* ── Top navigation ── */}
+        <View flexDirection="row" ai="center" jc="space-between" mb={14}>
+          <Pressable
+            onPress={() => setScreen(playMode === "challenge" ? "main" : "home")}
+            style={navButtonStyle}
+          >
+            <Text color={PRECISION_COLORS.textDim} fow="800" fos={12} ls={1} textTransform="uppercase">
+              {playMode === "challenge" ? t("back") : t("home")}
             </Text>
-            <Text style={styles.mechanicBannerText}>{t("focus")}: {tFocusHint(selectedLevel.mechanicTag)}</Text>
-          </View>
-        ) : (
-          <View style={styles.mechanicBanner}>
-            <Text style={styles.mechanicBannerTitle}>{t("rankedChallenge")}</Text>
-            <Text style={styles.mechanicBannerText}>{t("challengeDrawDesc").replace("{shape}", tShape(challengeShape))}</Text>
-          </View>
-        )}
-        <Text style={styles.playTitle}>{playMode === "challenge" ? tShape(challengeShape) : tShape(selectedLevel.targetShape)}</Text>
-        <Text style={styles.playSubTitle}>{t("drawWithPrecision")}</Text>
-        <Text style={styles.playSubTitle}>
-          {t("cosmeticLoadout")}: {t("brushAbbr")} {progression.premium.selectedBrushId || t("none")} | {t("trailAbbr")} {progression.premium.selectedTrailId || t("none")} | {t("frameAbbr")} {progression.premium.selectedFrameId || t("none")}
-        </Text>
+          </Pressable>
 
-        {playMode === "level" ? (
-        <View style={styles.mechanicLiveCard}>
-          {activeMechanic === "speed" ? (
-            <>
-              <Text style={styles.mechanicLiveTitle}>{t("speedTimer")}</Text>
-              <Text
-                style={[
-                  styles.mechanicLiveValue,
-                  playClockMs > speedParTimeMs && styles.mechanicLiveDanger
-                ]}
-              >
-                {playClockMs <= speedParTimeMs
-                  ? `${t("parRemaining")} ${(Math.max(0, speedParTimeMs - playClockMs) / 1000).toFixed(1)}s`
-                  : `${t("overtime")} +${((playClockMs - speedParTimeMs) / 1000).toFixed(1)}s`}
+          {playMode === "challenge" ? (
+            <View bg={PRECISION_COLORS.primarySoft} px={12} py={6} br={PRECISION_RADIUS.md} bw={1} borderColor="rgba(225,29,72,0.24)">
+              <Text color={PRECISION_COLORS.primaryStrong} fow="900" fos={10} ls={1.6} textTransform="uppercase">
+                {t("challengeLabel")}
               </Text>
-            </>
-          ) : null}
-          {activeMechanic === "stability" ? (
-            <>
-              <Text style={styles.mechanicLiveTitle}>{t("stabilityCheck")}</Text>
-              <Text style={styles.mechanicLiveValue}>{t("targetWobbleThreshold")}: {STABILITY_WOBBLE_WARN.toFixed(2)} / {STABILITY_WOBBLE_HEAVY.toFixed(2)}</Text>
-            </>
-          ) : null}
-          {activeMechanic === "symmetry" ? (
-            <>
-              <Text style={styles.mechanicLiveTitle}>{t("symmetryCheck")}</Text>
-              <Text style={styles.mechanicLiveValue}>{t("safeAccuracyBand")}: {SYMMETRY_WARN_ACCURACY}%+</Text>
-            </>
-          ) : null}
-          {activeMechanic === "memory" ? (
-            <>
-              <Text style={styles.mechanicLiveTitle}>{t("memoryCheck")}</Text>
-              <Text style={styles.mechanicLiveValue}>{memoryTargetVisible ? t("targetVisibleBriefly") : t("targetHiddenDrawFromMemory")}</Text>
-            </>
+            </View>
+          ) : (
+            <View flexDirection="row" gap={8}>
+              <View bg={PRECISION_COLORS.cyanTint} px={12} py={6} br={PRECISION_RADIUS.md} bw={1} borderColor="rgba(174,188,205,0.22)">
+                <Text color={PRECISION_COLORS.cyan} fow="900" fos={10} ls={1.2} textTransform="uppercase">
+                  {t("level")} {selectedLevel.index}
+                </Text>
+              </View>
+              <View bg={PRECISION_COLORS.amberSoft} px={12} py={6} br={PRECISION_RADIUS.md} bw={1} borderColor="rgba(251,191,36,0.3)">
+                <Text color={PRECISION_COLORS.amberStrong} fow="900" fos={10} ls={1.2}>
+                  ★ {getTotalBestStars(progression)}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          <Pressable onPress={resetRound} style={navButtonStyle}>
+            <Text color={PRECISION_COLORS.textMuted} fow="800" fos={12} ls={1} textTransform="uppercase">
+              {t("reset")}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* ── Shape title + mechanic line ── */}
+        <View flexDirection="row" ai="center" jc="space-between" mb={12} px={2}>
+          <Text color={PRECISION_COLORS.textStrong} fow="900" fos={22} lh={26} ls={-0.5} flexShrink={1} numberOfLines={1}>
+            {playMode === "challenge" ? tShape(challengeShape) : tShape(selectedLevel.targetShape)}
+          </Text>
+          {mechanicLine ? (
+            <View bg={PRECISION_COLORS.surface} px={12} py={6} br={PRECISION_RADIUS.md} bw={1} borderColor={PRECISION_COLORS.borderFaint} ml={8} flexShrink={0}>
+              <Text
+                color={isOvertime || isMemoryHidden ? PRECISION_COLORS.danger : PRECISION_COLORS.primaryStrong}
+                fow="800"
+                fos={11.5}
+                numberOfLines={1}
+              >
+                {mechanicLine}
+              </Text>
+            </View>
+          ) : playMode === "challenge" ? (
+            <View bg={PRECISION_COLORS.cyanTint} px={12} py={6} br={PRECISION_RADIUS.md} bw={1} borderColor="rgba(174,188,205,0.22)" ml={8} flexShrink={0}>
+              <Text color={PRECISION_COLORS.cyan} fow="800" fos={11.5} textTransform="uppercase" ls={0.8}>
+                {t("rankedChallenge")}
+              </Text>
+            </View>
           ) : null}
         </View>
-        ) : null}
 
-        <View style={[styles.targetCard, { borderColor: cosmeticVisual.frameColor }]}>
+        <View mb={12}>
+          <StatusPill text={statusText} />
+        </View>
+
+        {/* ── Target preview ── */}
+        <View
+          ai="center" jc="center"
+          h={COMPACT_PREVIEW + 16}
+          bg={PRECISION_COLORS.surface}
+          br={PRECISION_RADIUS.xxl}
+          bw={1}
+          borderColor={cosmeticVisual.frameColor}
+          mb={12}
+          shadowColor={PRECISION_COLORS.shadowDeep}
+          shadowOpacity={0.25}
+          shadowRadius={14}
+          shadowOffset={{ width: 0, height: 6 }}
+        >
           {playMode === "level" && activeMechanic === "memory" && !memoryTargetVisible ? (
-            <Text style={styles.memoryHiddenText}>{t("memoryModeHidden")}</Text>
+            <View ai="center">
+              <Text color={PRECISION_COLORS.textMuted} fow="900" fos={13} ls={2} textTransform="uppercase">
+                {t("memoryModeHidden")}
+              </Text>
+              {memoryPeeksLeft > 0 ? (
+                <Text color={PRECISION_COLORS.goldStrong} fow="800" fos={10} ls={1} mt={6}>
+                  {`${t("memoryPeeksLeftLabel")}: ${memoryPeeksLeft}`}
+                </Text>
+              ) : null}
+            </View>
           ) : (
-            <Svg width={TARGET_PREVIEW_SIZE} height={TARGET_PREVIEW_SIZE}>
+            <Svg width={COMPACT_PREVIEW} height={COMPACT_PREVIEW}>
               {playMode === "level" && activeMechanic === "symmetry" ? (
                 <Path
-                  d={`M ${(TARGET_PREVIEW_SIZE / 2).toFixed(2)} 18 L ${(TARGET_PREVIEW_SIZE / 2).toFixed(2)} ${(TARGET_PREVIEW_SIZE - 18).toFixed(2)}`}
+                  d={`M ${(COMPACT_PREVIEW / 2).toFixed(2)} 12 L ${(COMPACT_PREVIEW / 2).toFixed(2)} ${(COMPACT_PREVIEW - 12).toFixed(2)}`}
                   fill="none"
                   stroke={PRECISION_COLORS.borderGuide}
                   strokeWidth={1.5}
                   strokeLinecap="round"
+                  strokeDasharray="4 6"
                 />
               ) : null}
               <Path
-                d={playMode === "challenge" ? targetShapePath(challengeShape) : targetPreviewPath}
+                d={playMode === "challenge" ? targetShapePath(challengeShape, COMPACT_PREVIEW) : targetPreviewPath}
                 fill="none"
                 stroke={cosmeticVisual.accentColor}
-                strokeWidth={Math.max(4.5, cosmeticVisual.strokeWidth)}
+                strokeWidth={Math.max(3.5, cosmeticVisual.strokeWidth)}
                 strokeLinecap="round"
               />
             </Svg>
           )}
         </View>
 
-        <View style={styles.canvasGlowWrap}>
-          <View style={styles.canvasGlow} />
+        {/* ── Canvas ── */}
+        <View
+          onLayout={handleCanvasLayout}
+          flex={1}
+          bg="rgba(4,6,10,0.9)"
+          br={PRECISION_RADIUS.card}
+          bw={1}
+          borderColor={PRECISION_COLORS.border}
+          overflow="hidden"
+          mb={12}
+          shadowColor={PRECISION_COLORS.shadowBlack}
+          shadowOpacity={0.4}
+          shadowRadius={18}
+          shadowOffset={{ width: 0, height: 8 }}
+        >
           <DrawingCanvas
             onStrokeCommitted={handleStrokeCommitted}
             resetKey={canvasResetKey}
             cosmeticVisual={cosmeticVisual}
+            isStabilityMode={playMode === "level" && activeMechanic === "stability"}
           />
         </View>
 
-        <View style={styles.playActionsRow}>
-          <Animated.View
-            style={[
-              styles.playPrimaryPulseWrap,
-              {
-                transform: [
-                  {
-                    scale: playCtaPulseAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [1, 1.018]
-                    })
-                  }
-                ],
-                opacity: playCtaPulseAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.94, 1]
-                })
-              }
-            ]}
-          >
-            <Pressable
-              onPress={playMode === "challenge" ? handleChallengeServerSubmit : handleLocalScore}
-              disabled={!canScore || (playMode === "challenge" && challengeLoading)}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                (!canScore || (playMode === "challenge" && challengeLoading)) && styles.disabledButton,
-                pressed && canScore && styles.playButtonPressed
-              ]}
+        {/* ── Actions ── */}
+        <View flexDirection="row" gap={12}>
+          <View flex={1}>
+            <Animated.View
+              style={{
+                transform: [{ scale: playCtaPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.02] }) }],
+                opacity: playCtaPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })
+              }}
             >
-              <Text style={styles.buttonLabel}>{playMode === "challenge" ? (challengeLoading ? t("submitting") : t("submitToRanking")) : t("score")}</Text>
-            </Pressable>
-          </Animated.View>
+              <View
+                br={PRECISION_RADIUS.xl}
+                overflow="hidden"
+                bg={submitDisabled ? PRECISION_COLORS.surface : "transparent"}
+                borderColor={submitDisabled ? PRECISION_COLORS.border : "transparent"}
+                bw={submitDisabled ? 1 : 0}
+              >
+                <Pressable
+                  onPress={playMode === "challenge" ? handleChallengeServerSubmit : handleLocalScore}
+                  disabled={submitDisabled}
+                  style={({ pressed }) => ({
+                    paddingVertical: 16,
+                    borderRadius: PRECISION_RADIUS.xl,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: submitDisabled ? "transparent" : PRECISION_COLORS.primary,
+                    shadowColor: submitDisabled ? "transparent" : PRECISION_COLORS.primary,
+                    shadowOpacity: 0.35,
+                    shadowRadius: 16,
+                    shadowOffset: { width: 0, height: 6 },
+                    transform: [{ scale: pressed && !submitDisabled ? 0.97 : 1 }]
+                  })}
+                >
+                  <Text
+                    color={submitDisabled ? PRECISION_COLORS.textSubtle : PRECISION_COLORS.primaryInk}
+                    fow="900"
+                    fos={15}
+                    ls={0.6}
+                  >
+                    {playMode === "challenge"
+                      ? (challengeLoading ? t("submitting") : t("submitToRanking"))
+                      : t("score")}
+                  </Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+          </View>
+
+          <Pressable
+            onPress={resetRound}
+            style={({ pressed }) => ({
+              paddingVertical: 16,
+              paddingHorizontal: 20,
+              borderRadius: PRECISION_RADIUS.xl,
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: PRECISION_COLORS.border,
+              backgroundColor: pressed ? PRECISION_COLORS.surfaceStrong : PRECISION_COLORS.surface,
+              transform: [{ scale: pressed ? 0.98 : 1 }]
+            })}
+          >
+            <Text color={PRECISION_COLORS.textDim} fow="800" fos={12} textTransform="uppercase" ls={0.8}>
+              {t("tryNewStroke")}
+            </Text>
+          </Pressable>
         </View>
-
-        <Pressable onPress={resetRound} style={({ pressed }) => [styles.ghostButton, pressed && styles.playButtonPressed]}>
-          <Text style={styles.ghostLabel}>{t("tryNewStroke")}</Text>
-        </Pressable>
-
-        <Text style={styles.status}>{statusText}</Text>
-      </ScrollView>
+      </View>
     </Animated.View>
   );
 }

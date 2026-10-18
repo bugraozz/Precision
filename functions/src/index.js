@@ -6,7 +6,8 @@ const {
   minimumRequiredPoints,
   preprocessStroke,
   validateRoundPayload,
-  scoreRound
+  scoreRound,
+  SHAPE_TEMPLATES
 } = require("../../dist/index.js");
 const { buildRoundCompletedEvent, validateAnalyticsEvent } = require("./analytics");
 const { verifyPurchase } = require("./purchaseProviders");
@@ -31,6 +32,20 @@ const REQUIRED_FIELDS = [
 
 const PREMIUM_DAILY_ENERGY_MULTIPLIER = 3;
 const PREMIUM_COSMETIC_SET_ID = "premium-founder-set-v1";
+const KNOWN_MECHANIC_TAGS = new Set(["speed", "stability", "symmetry", "memory", "none"]);
+const VALID_DIFFICULTIES = new Set(["easy", "medium", "hard"]);
+
+/* Read an optional 0..4096 canvas min-dimension hint for stroke-size checks. */
+function normalizeCanvasMinDim(raw) {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    return undefined;
+  }
+  if (value < 120 || value > 4096) {
+    return undefined;
+  }
+  return value;
+}
 const PREMIUM_COSMETIC_ITEMS = [
   "premium-brush-aurora",
   "premium-trail-comet",
@@ -227,7 +242,7 @@ function updateProgressionFromRound(existingProgression, payload, score) {
   progression.daily.xp += xpForProgression;
   progression.daily.twoPlusStarRounds += score.stars >= 2 ? 1 : 0;
   progression.daily.bossAttempts += isBossAttempt ? 1 : 0;
-  if (score.accuracyPercent >= 85) {
+  if (score.accuracyPercent >= 90) {
     progression.daily.highAccuracyRounds += 1;
   }
   progression.daily.shapeTrackRounds[shapeTrack] += 1;
@@ -238,7 +253,7 @@ function updateProgressionFromRound(existingProgression, payload, score) {
   progression.weekly.twoPlusStarRounds += score.stars >= 2 ? 1 : 0;
   progression.weekly.bossAttempts += isBossAttempt ? 1 : 0;
   progression.weekly.ladderPoints += ladderGain;
-  if (score.accuracyPercent >= 85) {
+  if (score.accuracyPercent >= 90) {
     progression.weekly.highAccuracyRounds += 1;
   }
   progression.weekly.shapeTrackRounds[shapeTrack] += 1;
@@ -336,6 +351,16 @@ async function roundSubmitHandler(req, res, deps = {}) {
     return;
   }
 
+  /* Fail fast on unknown shapes / difficulties instead of a 500 later. */
+  if (!SHAPE_TEMPLATES[payload.targetShape]) {
+    res.status(422).json({ accepted: false, reasons: ["invalid_target_shape"] });
+    return;
+  }
+  if (!VALID_DIFFICULTIES.has(payload.difficulty)) {
+    res.status(422).json({ accepted: false, reasons: ["invalid_difficulty"] });
+    return;
+  }
+
   const processedPoints = preprocessStroke(payload.points, {
     smoothingWindow: 2,
     minDistance: 1.5,
@@ -357,13 +382,18 @@ async function roundSubmitHandler(req, res, deps = {}) {
     return;
   }
 
+  const timeTakenMs = Number(payload.endedAtMs) - Number(payload.startedAtMs);
   const score = scoreRound(
     processedPoints,
     payload.targetShape,
     payload.difficulty,
     Number(payload.streakBonus || 0),
     {
-      scoringVersion: getScoringVersionFromEnvValue(process.env.PRECISION_SCORING_VERSION)
+      scoringVersion: getScoringVersionFromEnvValue(process.env.PRECISION_SCORING_VERSION),
+      mechanicTag: KNOWN_MECHANIC_TAGS.has(payload.mechanicTag) ? payload.mechanicTag : "none",
+      timeTakenMs: Number.isFinite(timeTakenMs) ? timeTakenMs : undefined,
+      timeLimitMs: Number.isFinite(payload.timeLimitMs) ? payload.timeLimitMs : undefined,
+      canvasMinDim: normalizeCanvasMinDim(payload.canvasMinDim)
     }
   );
 
@@ -416,6 +446,21 @@ async function roundSubmitHandler(req, res, deps = {}) {
           submittedAt: activeDeps.fieldValue.serverTimestamp()
         });
       }
+
+      // Update weekly ladder global leaderboard — upsert running weekly totals per user
+      const now = Date.now();
+      const weekKey = utcWeekKey(now);
+      const ladderGain = score.stars * 3 + (score.accuracyPercent >= 90 ? 3 : 0) + (typeof payload.levelId === "string" && /-l10$/.test(payload.levelId) ? 6 : 0);
+      const ladderRef = activeDeps.firestore.collection("weeklyLadder").doc(`${payload.userId}_${weekKey}`);
+      txn.set(ladderRef, {
+        userId: payload.userId,
+        displayName: typeof payload.displayName === "string" ? payload.displayName.slice(0, 30) : "Player",
+        weekKey,
+        ladderPoints: activeDeps.fieldValue.increment(ladderGain),
+        stars: activeDeps.fieldValue.increment(score.stars),
+        rounds: activeDeps.fieldValue.increment(1),
+        updatedAt: activeDeps.fieldValue.serverTimestamp()
+      }, { merge: true });
     });
 
     res.status(200).json({
@@ -834,6 +879,7 @@ async function challengeGetHandler(req, res, deps = {}) {
         accuracyPercent: data.accuracyPercent,
         stars: data.stars,
         xpGained: data.xpGained,
+        points: Array.isArray(data.points) ? data.points.slice(0, 400) : [],
         submittedAt: data.submittedAt
       });
     });
@@ -899,7 +945,11 @@ async function challengeSubmitHandler(req, res, deps = {}) {
     shape,
     difficulty,
     0,
-    { scoringVersion: getScoringVersionFromEnvValue(process.env.PRECISION_SCORING_VERSION) }
+    {
+      scoringVersion: getScoringVersionFromEnvValue(process.env.PRECISION_SCORING_VERSION),
+      mechanicTag: "none",
+      canvasMinDim: normalizeCanvasMinDim(payload.canvasMinDim)
+    }
   );
 
   try {
@@ -926,6 +976,8 @@ async function challengeSubmitHandler(req, res, deps = {}) {
         stars: score.stars,
         xpGained: score.xpGained,
         difficulty,
+        /* Ghost replay support: persist the actual winning stroke. */
+        points: processedPoints.slice(0, 400),
         submittedAt: activeDeps.fieldValue.serverTimestamp()
       });
     });
@@ -973,6 +1025,348 @@ exports.challenge_get = onRequest({ cors: true, region: "europe-west1" }, async 
 
 exports.challenge_submit = onRequest({ cors: true, region: "europe-west1" }, async (req, res) => {
   await challengeSubmitHandler(req, res);
+});
+
+// ─── Duel System ───────────────────────────────────────────────────────────────
+
+const DUEL_SHAPES = ["circle", "square", "triangle", "diamond", "pentagon", "hexagon", "heart", "star"];
+const DUEL_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours to complete your turn
+
+async function duelCreateHandler(req, res, deps = {}) {
+  const activeDeps = { firestore, logger, fieldValue: admin.firestore.FieldValue, ...deps };
+  if (req.method !== "POST") { res.status(405).json({ error: "method_not_allowed" }); return; }
+
+  const payload = req.body || {};
+  const userId = typeof payload.userId === "string" ? payload.userId : "";
+  const displayName = typeof payload.displayName === "string" ? payload.displayName.slice(0, 30) : "Player";
+  const shape = typeof payload.shape === "string" ? payload.shape : "";
+  const difficulty = ["easy", "medium", "hard"].includes(payload.difficulty) ? payload.difficulty : "medium";
+
+  if (!userId || !shape || !DUEL_SHAPES.includes(shape)) {
+    res.status(400).json({ error: "missing_or_invalid_fields", fields: ["userId", "shape"] });
+    return;
+  }
+
+  try {
+    const duelRef = activeDeps.firestore.collection("duels").doc();
+    const now = Date.now();
+    const expiresAt = now + DUEL_TIMEOUT_MS;
+    const duelDoc = {
+      status: "waiting",
+      shape,
+      difficulty,
+      createdAt: activeDeps.fieldValue.serverTimestamp(),
+      expiresAt,
+      creatorId: userId,
+      creatorName: displayName,
+      creatorTurn: null,
+      challengerId: null,
+      challengerName: null,
+      challengerTurn: null,
+      winnerUserId: null,
+      resolvedAt: null
+    };
+    await duelRef.set(duelDoc);
+    res.status(200).json({ accepted: true, duelId: duelRef.id, shape, difficulty, expiresAt });
+  } catch (error) {
+    activeDeps.logger.error("duel_create_failed", { error: String(error), userId });
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
+async function duelJoinHandler(req, res, deps = {}) {
+  const activeDeps = { firestore, logger, fieldValue: admin.firestore.FieldValue, ...deps };
+  if (req.method !== "POST") { res.status(405).json({ error: "method_not_allowed" }); return; }
+
+  const payload = req.body || {};
+  const duelId = typeof payload.duelId === "string" ? payload.duelId : "";
+  const userId = typeof payload.userId === "string" ? payload.userId : "";
+  const displayName = typeof payload.displayName === "string" ? payload.displayName.slice(0, 30) : "Player";
+
+  if (!duelId || !userId || !Array.isArray(payload.points) || payload.points.length < 2) {
+    res.status(400).json({ error: "missing_fields", fields: ["duelId", "userId", "points"] });
+    return;
+  }
+
+  if (hasInvalidCoordinates(payload.points)) {
+    res.status(422).json({ accepted: false, reasons: ["invalid_coordinates"] });
+    return;
+  }
+
+  try {
+    const duelRef = activeDeps.firestore.collection("duels").doc(duelId);
+    let responsePayload = null;
+
+    await activeDeps.firestore.runTransaction(async (txn) => {
+      const snap = await txn.get(duelRef);
+      if (!snap.exists) {
+        responsePayload = { status: 404, body: { accepted: false, reason: "duel_not_found" } };
+        return;
+      }
+      const duel = snap.data();
+
+      if (duel.expiresAt && Date.now() > duel.expiresAt) {
+        responsePayload = { status: 410, body: { accepted: false, reason: "duel_expired" } };
+        return;
+      }
+
+      if (duel.status === "finished") {
+        responsePayload = { status: 409, body: { accepted: false, reason: "duel_already_finished" } };
+        return;
+      }
+
+      const processedPoints = preprocessStroke(payload.points, { smoothingWindow: 2, minDistance: 1.5, minPoints: 24 });
+      const score = scoreRound(processedPoints, duel.shape, duel.difficulty, 0, {
+        scoringVersion: getScoringVersionFromEnvValue(process.env.PRECISION_SCORING_VERSION),
+        mechanicTag: "none",
+        canvasMinDim: normalizeCanvasMinDim(payload.canvasMinDim)
+      });
+
+      const turnData = {
+        userId,
+        displayName,
+        accuracyPercent: score.accuracyPercent,
+        stars: score.stars,
+        xpGained: score.xpGained,
+        duelScore: score.accuracyPercent + score.stars * 2,
+        submittedAt: activeDeps.fieldValue.serverTimestamp()
+      };
+
+      const isCreator = duel.creatorId === userId;
+      const isNewChallenger = !duel.challengerId && !isCreator;
+
+      if (isCreator) {
+        if (duel.creatorTurn) {
+          responsePayload = { status: 409, body: { accepted: false, reason: "already_submitted" } };
+          return;
+        }
+        txn.update(duelRef, { creatorTurn: turnData });
+      } else if (isNewChallenger) {
+        txn.update(duelRef, {
+          challengerId: userId,
+          challengerName: displayName,
+          challengerTurn: turnData,
+          status: "active"
+        });
+      } else if (duel.challengerId === userId) {
+        if (duel.challengerTurn) {
+          responsePayload = { status: 409, body: { accepted: false, reason: "already_submitted" } };
+          return;
+        }
+        txn.update(duelRef, { challengerTurn: turnData });
+      } else {
+        responsePayload = { status: 403, body: { accepted: false, reason: "duel_full" } };
+        return;
+      }
+
+      responsePayload = {
+        status: 200,
+        body: {
+          accepted: true,
+          duelId,
+          accuracyPercent: score.accuracyPercent,
+          stars: score.stars,
+          xpGained: score.xpGained,
+          duelScore: turnData.duelScore
+        }
+      };
+    });
+
+    if (!responsePayload) { res.status(500).json({ error: "internal_error" }); return; }
+    res.status(responsePayload.status).json(responsePayload.body);
+  } catch (error) {
+    activeDeps.logger.error("duel_join_failed", { error: String(error), userId, duelId });
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
+async function duelResolveHandler(req, res, deps = {}) {
+  const activeDeps = { firestore, logger, fieldValue: admin.firestore.FieldValue, ...deps };
+  if (req.method !== "POST") { res.status(405).json({ error: "method_not_allowed" }); return; }
+
+  const payload = req.body || {};
+  const duelId = typeof payload.duelId === "string" ? payload.duelId : "";
+  if (!duelId) { res.status(400).json({ error: "missing_fields", fields: ["duelId"] }); return; }
+
+  try {
+    const duelRef = activeDeps.firestore.collection("duels").doc(duelId);
+    let responsePayload = null;
+
+    await activeDeps.firestore.runTransaction(async (txn) => {
+      const snap = await txn.get(duelRef);
+      if (!snap.exists) {
+        responsePayload = { status: 404, body: { error: "duel_not_found" } };
+        return;
+      }
+      const duel = snap.data();
+
+      if (duel.status === "finished") {
+        // Already resolved — just return the result
+        responsePayload = {
+          status: 200,
+          body: {
+            duelId,
+            status: "finished",
+            winnerUserId: duel.winnerUserId,
+            creatorTurn: duel.creatorTurn,
+            challengerTurn: duel.challengerTurn,
+            shape: duel.shape,
+            difficulty: duel.difficulty
+          }
+        };
+        return;
+      }
+
+      if (!duel.creatorTurn || !duel.challengerTurn) {
+        responsePayload = {
+          status: 200,
+          body: {
+            duelId,
+            status: duel.status,
+            waiting: true,
+            creatorSubmitted: Boolean(duel.creatorTurn),
+            challengerSubmitted: Boolean(duel.challengerTurn),
+            shape: duel.shape
+          }
+        };
+        return;
+      }
+
+      // Both turns submitted — resolve winner
+      const scoreA = duel.creatorTurn.duelScore || 0;
+      const scoreB = duel.challengerTurn.duelScore || 0;
+      const diff = Math.abs(scoreA - scoreB);
+      const winnerUserId = diff < 0.0001 ? null : (scoreA > scoreB ? duel.creatorId : duel.challengerId);
+
+      txn.update(duelRef, {
+        status: "finished",
+        winnerUserId,
+        resolvedAt: activeDeps.fieldValue.serverTimestamp()
+      });
+
+      responsePayload = {
+        status: 200,
+        body: {
+          duelId,
+          status: "finished",
+          winnerUserId,
+          creatorTurn: duel.creatorTurn,
+          challengerTurn: duel.challengerTurn,
+          shape: duel.shape,
+          difficulty: duel.difficulty
+        }
+      };
+    });
+
+    if (!responsePayload) { res.status(500).json({ error: "internal_error" }); return; }
+    res.status(responsePayload.status).json(responsePayload.body);
+  } catch (error) {
+    activeDeps.logger.error("duel_resolve_failed", { error: String(error), duelId });
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
+async function duelGetHandler(req, res, deps = {}) {
+  const activeDeps = { firestore, logger, ...deps };
+  if (req.method !== "POST") { res.status(405).json({ error: "method_not_allowed" }); return; }
+
+  const payload = req.body || {};
+  const userId = typeof payload.userId === "string" ? payload.userId : "";
+  const limit = Math.min(Math.max(1, toNumber(payload.limit, 20)), 50);
+
+  if (!userId) { res.status(400).json({ error: "missing_fields", fields: ["userId"] }); return; }
+
+  try {
+    const duelsRef = activeDeps.firestore.collection("duels");
+    const [asCreator, asChallenger] = await Promise.all([
+      duelsRef.where("creatorId", "==", userId).orderBy("createdAt", "desc").limit(limit).get(),
+      duelsRef.where("challengerId", "==", userId).orderBy("createdAt", "desc").limit(limit).get()
+    ]);
+
+    const seen = new Set();
+    const duels = [];
+    for (const snap of [...asCreator.docs, ...asChallenger.docs]) {
+      if (seen.has(snap.id)) continue;
+      seen.add(snap.id);
+      const d = snap.data();
+      duels.push({
+        duelId: snap.id,
+        status: d.status,
+        shape: d.shape,
+        difficulty: d.difficulty,
+        creatorId: d.creatorId,
+        creatorName: d.creatorName,
+        challengerId: d.challengerId,
+        challengerName: d.challengerName,
+        winnerUserId: d.winnerUserId,
+        creatorSubmitted: Boolean(d.creatorTurn),
+        challengerSubmitted: Boolean(d.challengerTurn),
+        expiresAt: d.expiresAt
+      });
+    }
+    duels.sort((a, b) => (b.expiresAt || 0) - (a.expiresAt || 0));
+    res.status(200).json({ duels: duels.slice(0, limit) });
+  } catch (error) {
+    activeDeps.logger.error("duel_get_failed", { error: String(error), userId });
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
+// ─── Weekly Ladder Global Leaderboard ─────────────────────────────────────────
+
+async function weeklyLadderGetHandler(req, res, deps = {}) {
+  const activeDeps = { firestore, logger, ...deps };
+  if (req.method !== "POST") { res.status(405).json({ error: "method_not_allowed" }); return; }
+
+  const limit = Math.min(Math.max(1, toNumber((req.body || {}).limit, 50)), 100);
+  const weekKey = utcWeekKey();
+
+  try {
+    const snapshot = await activeDeps.firestore
+      .collection("weeklyLadder")
+      .where("weekKey", "==", weekKey)
+      .orderBy("ladderPoints", "desc")
+      .limit(limit)
+      .get();
+
+    const entries = [];
+    snapshot.forEach((doc) => {
+      const d = doc.data();
+      entries.push({
+        userId: d.userId,
+        displayName: d.displayName || "Player",
+        ladderPoints: d.ladderPoints,
+        stars: d.stars,
+        rounds: d.rounds,
+        weekKey: d.weekKey
+      });
+    });
+
+    res.status(200).json({ weekKey, entries });
+  } catch (error) {
+    activeDeps.logger.error("weekly_ladder_get_failed", { error: String(error) });
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
+exports.duel_create = onRequest({ cors: true, region: "europe-west1" }, async (req, res) => {
+  await duelCreateHandler(req, res);
+});
+
+exports.duel_join = onRequest({ cors: true, region: "europe-west1" }, async (req, res) => {
+  await duelJoinHandler(req, res);
+});
+
+exports.duel_resolve = onRequest({ cors: true, region: "europe-west1" }, async (req, res) => {
+  await duelResolveHandler(req, res);
+});
+
+exports.duel_get = onRequest({ cors: true, region: "europe-west1" }, async (req, res) => {
+  await duelGetHandler(req, res);
+});
+
+exports.weekly_ladder_get = onRequest({ cors: true, region: "europe-west1" }, async (req, res) => {
+  await weeklyLadderGetHandler(req, res);
 });
 
 exports.__test = {

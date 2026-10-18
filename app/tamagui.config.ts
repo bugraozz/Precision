@@ -1,19 +1,20 @@
 import { config } from "@tamagui/config/v3";
 import { createTamagui } from "tamagui";
+import { PRECISION_COLORS } from "./src/theme/precisionTokens";
 
 const precisionDarkTheme = {
   ...config.themes.dark,
-  background: "#030508",
-  backgroundFocus: "#060e1e",
-  color: "#f0f2f8",
-  colorFocus: "#ffffff",
-  borderColor: "rgba(255,255,255,0.08)",
-  borderColorFocus: "rgba(252,215,122,0.56)",
-  shadowColor: "#000000",
-  primary: "#f59e0b",
-  primaryHover: "#fbbf24",
-  secondary: "#22d3ee",
-  secondaryHover: "#22d3ee"
+  background: PRECISION_COLORS.bg,
+  backgroundFocus: "#0a0f18",
+  color: PRECISION_COLORS.text,
+  colorFocus: PRECISION_COLORS.textStrong,
+  borderColor: PRECISION_COLORS.border,
+  borderColorFocus: PRECISION_COLORS.borderGoldActive,
+  shadowColor: PRECISION_COLORS.shadowBlack,
+  primary: PRECISION_COLORS.primary,
+  primaryHover: PRECISION_COLORS.primaryStrong,
+  secondary: PRECISION_COLORS.cyan,
+  secondaryHover: PRECISION_COLORS.cyan
 };
 
 const tamaguiConfig = createTamagui({
@@ -26,13 +27,13 @@ const tamaguiConfig = createTamagui({
     ...config.tokens,
     color: {
       ...config.tokens.color,
-      precisionBg: "#030508",
-      precisionCard: "rgba(12,20,40,0.55)",
-      precisionText: "#f0f2f8",
-      precisionMuted: "#8896b0",
-      precisionPrimary: "#f59e0b",
-      precisionPrimarySoft: "rgba(251,191,36,0.18)",
-      precisionAccent: "#22d3ee"
+      precisionBg: PRECISION_COLORS.bg,
+      precisionCard: PRECISION_COLORS.surface,
+      precisionText: PRECISION_COLORS.text,
+      precisionMuted: PRECISION_COLORS.textMuted,
+      precisionPrimary: PRECISION_COLORS.primary,
+      precisionPrimarySoft: PRECISION_COLORS.primarySoft,
+      precisionAccent: PRECISION_COLORS.cyan
     }
   }
 });

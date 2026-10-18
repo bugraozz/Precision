@@ -2,10 +2,11 @@
   "expo": {
     "name": "Precision Arena",
     "slug": "precision-arena",
+    "jsEngine": "jsc",
     "version": "0.1.0",
     "scheme": "precision",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -14,7 +15,7 @@
     },
     "splash": {
       "resizeMode": "contain",
-      "backgroundColor": "#f6f7fb"
+      "backgroundColor": "#070508"
     },
     "assetBundlePatterns": ["**/*"],
     "ios": {
@@ -27,7 +28,7 @@
       "versionCode": 1,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#f6f7fb"
+        "backgroundColor": "#070508"
       }
     },
     "plugins": ["@react-native-firebase/app", "@react-native-firebase/crashlytics"]
